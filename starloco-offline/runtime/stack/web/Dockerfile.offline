@@ -1,0 +1,13 @@
+ARG BASE_IMAGE=starloco-offline/web:prepared
+FROM ${BASE_IMAGE}
+
+# Rafraîchissement reproductible du portail sans accès aux dépôts Alpine.
+# L'image de base préparée contient déjà PHP, Nginx, Supervisor et les
+# extensions requises ; seuls les fichiers appartenant au paquet sont remplacés.
+COPY public/ /src/public/
+COPY nginx.conf /etc/nginx/nginx.conf
+COPY php.ini /usr/local/etc/php/conf.d/99-starloco.ini
+COPY supervisord.conf /etc/supervisord.conf
+COPY entrypoint.sh /usr/local/bin/starloco-web-entrypoint.sh
+
+RUN chmod +x /usr/local/bin/starloco-web-entrypoint.sh

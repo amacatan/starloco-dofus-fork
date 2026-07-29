@@ -1,0 +1,232 @@
+name: starloco
+
+secrets:
+  mariadb_root_password_secret:
+    file: ./secrets/mariadb_root.secret
+  starloco_db_password_secret:
+    file: ./secrets/starloco_db_password.secret
+  exchange_key_secret:
+    file: ./secrets/exchange_key.secret
+  admin_password_secret:
+    file: ./secrets/admin_password.secret
+  admin_hmac_key_secret:
+    file: ./secrets/admin_hmac_key.secret
+
+networks:
+  starloco:
+    driver: bridge
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks: [starloco]
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  mariadb:
+    <<: *service-defaults
+    image: mariadb:11.3
+    pull_policy: never
+    secrets:
+      - mariadb_root_password_secret
+      - starloco_db_password_secret
+    environment:
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/mariadb_root_password_secret
+      MARIADB_DATABASE: starloco_login
+      MARIADB_USER: starloco
+      MARIADB_PASSWORD_FILE: /run/secrets/starloco_db_password_secret
+      MARIADB_AUTO_UPGRADE: "1"
+    command:
+      - --bind-address=0.0.0.0
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-name-resolve
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
+  redis:
+    <<: *service-defaults
+    image: redis:7-alpine
+    pull_policy: never
+    command: ["redis-server", "--save", "60", "1000", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  login:
+    <<: *service-defaults
+    image: starloco-offline/login:custom
+    pull_policy: never
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:450:450"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    secrets:
+      - starloco_db_password_secret
+      - exchange_key_secret
+    environment:
+      JAVA_OPTS: -Xms256m -Xmx512m -DmariaDB=true
+      MARIADB_HOST: mariadb
+      STARLOCO_DB_USER: starloco
+      STARLOCO_DB_PASSWORD_FILE: /run/secrets/starloco_db_password_secret
+      GAME_SERVER_IP: ${GAME_SERVER_IP:-127.0.0.1}
+      GAME_SERVER_ID: ${GAME_SERVER_ID:-601}
+      GAME_SERVER_KEY: ${GAME_SERVER_KEY:?GAME_SERVER_KEY absent dans .env}
+      GAME_SERVER_NAME: ${GAME_SERVER_NAME:-StarLoco}
+      GAME_SERVER_VERSION: ${GAME_SERVER_VERSION:-1.41.9}
+      EXCHANGE_KEY_FILE: /run/secrets/exchange_key_secret
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 450 && nc -z 127.0.0.1 666"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+
+  game:
+    <<: *service-defaults
+    image: starloco-offline/game:custom
+    pull_policy: never
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:5555:5555"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      login:
+        condition: service_healthy
+    secrets:
+      - starloco_db_password_secret
+      - exchange_key_secret
+    environment:
+      JAVA_OPTS: -Xms512m -Xmx1024m -DmariaDB=true
+      MARIADB_HOST: mariadb
+      REDIS_HOST: redis
+      STARLOCO_DB_USER: starloco
+      STARLOCO_DB_PASSWORD_FILE: /run/secrets/starloco_db_password_secret
+      GAME_SERVER_IP: ${GAME_SERVER_IP:-127.0.0.1}
+      GAME_SERVER_ID: ${GAME_SERVER_ID:-601}
+      GAME_SERVER_KEY: ${GAME_SERVER_KEY:?GAME_SERVER_KEY absent dans .env}
+      GAME_SERVER_NAME: ${GAME_SERVER_NAME:-StarLoco}
+      GAME_SERVER_VERSION: ${GAME_SERVER_VERSION:-1.41.9}
+      EXCHANGE_KEY_FILE: /run/secrets/exchange_key_secret
+      RATE_XP: ${RATE_XP:-1}
+      RATE_DROP: ${RATE_DROP:-1}
+      RATE_DROP_THRESHOLD: ${RATE_DROP_THRESHOLD:-1}
+      RATE_JOB: ${RATE_JOB:-1}
+      RATE_FM: ${RATE_FM:-1}
+      RATE_HONOR: ${RATE_HONOR:-1}
+      RATE_KAMAS: ${RATE_KAMAS:-1}
+      GAME_SERVER_DEBUG: ${GAME_SERVER_DEBUG:-false}
+      STARLOCO_CONFIG_PATH: /app/config/game.config.properties
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "5555"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+
+  web:
+    <<: *service-defaults
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: starloco-offline/web:prepared
+    pull_policy: never
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:80:80"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    secrets:
+      - starloco_db_password_secret
+      - source: admin_password_secret
+        target: admin_password_secret
+        uid: "0"
+        gid: "0"
+        mode: 0400
+      - admin_hmac_key_secret
+    environment:
+      MARIADB_HOST: mariadb
+      MARIADB_PORT: 3306
+      MARIADB_DATABASE: starloco_login
+      STARLOCO_DB_USER: starloco
+      STARLOCO_DB_PASSWORD_SOURCE_FILE: /run/secrets/starloco_db_password_secret
+      STARLOCO_DB_PASSWORD_FILE: /run/starloco/starloco_db_password.secret
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD_SOURCE_FILE: /run/secrets/admin_password_secret
+      ADMIN_PASSWORD_HASH_FILE: /run/starloco/admin_password.hash
+      ADMIN_HMAC_KEY_SOURCE_FILE: /run/secrets/admin_hmac_key_secret
+      ADMIN_HMAC_KEY_FILE: /run/starloco/admin_hmac_key.secret
+      GAME_SERVER_NAME: ${GAME_SERVER_NAME:-StarLoco}
+    volumes:
+      - ./web/public:/src/public:ro
+      - ../../sources/starloco-docker/web/public/lang:/src/lang:ro
+      - ../../sources/starloco-docker/web/dofus/resources/app/retroclient/data/maps:/src/data/maps:ro
+      - ./web/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./web/php.ini:/usr/local/etc/php/conf.d/99-starloco.ini:ro
+      - ./web/entrypoint.sh:/usr/local/bin/starloco-web-entrypoint.sh:ro
+    entrypoint: ["sh", "/usr/local/bin/starloco-web-entrypoint.sh"]
+    command: ["supervisord", "-c", "/etc/supervisord.conf"]
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1/health.php?deep=1"]
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 30s
+
+  social-worker:
+    <<: *service-defaults
+    image: starloco-offline/web:prepared
+    pull_policy: never
+    command: ["php", "/src/public/cli-social-worker.php"]
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    secrets:
+      - starloco_db_password_secret
+    environment:
+      MARIADB_HOST: mariadb
+      MARIADB_PORT: 3306
+      MARIADB_DATABASE: starloco_login
+      STARLOCO_DB_USER: starloco
+      STARLOCO_DB_PASSWORD_FILE: /run/secrets/starloco_db_password_secret
+      SOCIAL_SCAN_INTERVAL: ${SOCIAL_SCAN_INTERVAL:-15}
+      SOCIAL_ITEM_MIN_LEVEL: ${SOCIAL_ITEM_MIN_LEVEL:-60}
+      SOCIAL_ITEM_MIN_PRICE: ${SOCIAL_ITEM_MIN_PRICE:-50000}
+      SOCIAL_ITEM_MIN_POINTS: ${SOCIAL_ITEM_MIN_POINTS:-1}
+      SOCIAL_RETENTION_DAYS: ${SOCIAL_RETENTION_DAYS:-90}
+      SOCIAL_MAX_EVENTS: ${SOCIAL_MAX_EVENTS:-5000}
+    volumes:
+      - ./web/public:/src/public:ro
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    healthcheck:
+      test: ["CMD", "php", "/src/public/cli-social-health.php"]
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 90s
+
+volumes:
+  mariadb_data:
+  redis_data:

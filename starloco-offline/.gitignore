@@ -1,0 +1,36 @@
+# Local Git repositories and editor metadata
+**/.git/
+.vscode/
+.idea/
+
+# Local configuration and credentials
+**/.env
+!**/.env.example
+runtime/stack/secrets/
+**/*.pem
+**/*.key
+
+# Build products and tool caches
+**/.gradle/
+**/build/
+**/Build/
+**/target/
+**/__pycache__/
+**/.pytest_cache/
+cache/
+build-contexts/**/*.jar
+runtime/builds/
+
+# Large reproducible offline exports
+docker-images/*.tar
+docker-images/*.tar.sha256
+
+# Logs and temporary files
+**/*.log
+**/*.tmp
+**/*.bak
+**/*.orig
+**/*.rej
+**/*~
+**/.DS_Store
+**/Thumbs.db

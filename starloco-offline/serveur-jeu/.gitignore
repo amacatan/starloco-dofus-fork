@@ -1,0 +1,10 @@
+.gradle
+build
+Build
+logs
+Logs
+game.jar
+gradlew.bat
+gradlew
+.idea
+gradle/

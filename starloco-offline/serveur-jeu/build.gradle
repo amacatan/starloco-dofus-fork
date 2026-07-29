@@ -1,0 +1,74 @@
+apply plugin: 'java'
+
+group 'org.starloco.locos'
+// Get version from git tag, fallback to git commit hash
+version 'git rev-parse --abbrev-ref HEAD'.execute().getText().trim()
+if (version == 'HEAD') {
+    version 'git rev-parse --short HEAD'.execute().getText().trim()
+}
+
+// Make sure we compile in UTF-8 mode
+compileJava.options.encoding = 'UTF-8'
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs 'src'
+        }
+        resources {
+            srcDirs "src/resources/"
+        }
+    }
+    test {
+        java {
+            srcDirs 'test'
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'redis.clients:jedis:5.1.2'
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation group: 'org.reflections', name: 'reflections', version: '0.10.2'
+}
+
+jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    archiveFileName = "game.jar"
+
+    manifest {
+        attributes(
+            'Main-Class': 'org.starloco.locos.kernel.Main'
+        )
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+}
+
+def unitTestWorkingDir = file("$buildDir/unit-test-work")
+tasks.register('unitTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.starloco.locos.tests.GameUnitChecks'
+    workingDir unitTestWorkingDir
+    doFirst {
+        unitTestWorkingDir.mkdirs()
+    }
+}
+
+check.dependsOn unitTest

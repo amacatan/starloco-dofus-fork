@@ -1,0 +1,104 @@
+local npc = Npc(857, 30)
+
+local recipeQuestID = 181
+local recipeID = 8528
+local zaapQuestID = 182
+
+npc.colors = {6513587, 16771366, 13749677}
+npc.accessories = {0, 0x1b4c, 0, 0, 0}
+npc.customArtwork = 9089
+
+npc.quests = {zaapQuestID}
+
+---@param p Player
+---@param answer number
+function npc:onTalk(p, answer)
+    local recipeQuest = QUESTS[recipeQuestID]
+    local zaapQuest = QUESTS[zaapQuestID]
+
+    -- Vérifie si la quête zaapQuest est terminée
+    if zaapQuest:finishedBy(p) then
+        if answer == 0 then
+            -- Affiche un texte indiquant que tout est terminé
+            p:ask(3654)  -- Change le texte ici si nécessaire
+        end
+        return
+    end
+
+    -- Gestion de la quête recipeQuest
+    if recipeQuest:availableTo(p) then
+        p:ask(3654)
+        return
+    end
+
+    if recipeQuest:ongoingFor(p) then
+        if answer == 0 then
+            if recipeQuest:hasCompletedObjective(p, 745) then
+                if not p:getItem(recipeID) then
+                    p:addItem(recipeID)
+                end
+                p:compassTo(10286)
+                p:ask(3653)
+                return
+            end
+            p:ask(3655, {3223})
+        elseif answer == 3223 then
+            p:ask(3656, {3224, 3225})
+        elseif answer == 3224 then
+            recipeQuest:completeObjective(p, 745)
+            p:ask(3657, {3226})
+        elseif answer == 3225 then
+            p:endDialog()
+        elseif answer == 3226 then
+            recipeQuest:completeObjective(p, 745)
+            if not p:getItem(recipeID) then
+                p:addItem(recipeID)
+            end
+            p:endDialog()
+        end
+        return
+    end
+
+    -- Cette section vérifie si la quête zaapQuest est déjà terminée
+    if zaapQuest:finishedBy(p) then
+        p:ask(3654)  -- Le PNJ répond "3654" si la quête est déjà terminée
+        return
+    end
+
+    if recipeQuest:finishedBy(p) then
+        if answer == 0 then
+            p:ask(3660, {3228, 3227})
+        elseif answer == 3228 then
+            p:endDialog()
+        elseif answer == 3227 then
+            p:ask(3661, {3229})
+        elseif answer == 3229 then
+            p:ask(3662, {3230})
+        elseif answer == 3230 then
+            p:ask(3663, {3231})
+        elseif answer == 3231 then
+            p:ask(3664)
+            if not p:getItem(8529) then
+                p:addItem(8529)
+            end
+
+            -- Lancement de la quête zaapQuest
+            if not zaapQuest:finishedBy(p) and not zaapQuest:ongoingFor(p) then
+                zaapQuest:startFor(p, self.id)
+            end
+            p:endDialog()
+        end
+        return
+    end
+
+    -- Réponse par défaut
+    if answer == 0 then
+        p:ask(3654)
+    end
+
+    if answer == 0 then p:ask(3654)
+    end
+
+end
+
+RegisterNPCDef(npc)

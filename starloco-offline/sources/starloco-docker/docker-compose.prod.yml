@@ -1,0 +1,72 @@
+# Production Docker Compose Configuration Overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Or: ./run.sh start --prod
+#
+# This file only contains production-specific overrides.
+# All base configuration is in docker-compose.yml
+
+services:
+  mariadb:
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    mem_limit: 1.5G
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    mem_limit: 256M
+    cpus: 0.25
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  login:
+    mem_limit: 768M
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 450 && nc -z 127.0.0.1 666"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  game:
+    mem_limit: 2G
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "5555"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    mem_limit: 384M
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

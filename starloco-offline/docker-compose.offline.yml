@@ -1,0 +1,17 @@
+services:
+  mariadb:
+    pull_policy: never
+  redis:
+    pull_policy: never
+  login:
+    image: starloco-offline/login:custom
+    pull_policy: never
+  game:
+    image: starloco-offline/game:custom
+    pull_policy: never
+  web:
+    image: starloco-offline/web:prepared
+    pull_policy: never
+  social-worker:
+    image: starloco-offline/web:prepared
+    pull_policy: never

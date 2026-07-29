@@ -1,0 +1,7 @@
+Dépôts récupérés par prepare-online.sh :
+
+- https://github.com/tiboitel/starloco-docker.git — commit 44114333c8a900ad4ad3f64edfe1c03e603316c1
+- https://github.com/StarLoco/StarLoco-Game.git — tag v1.0.6, placé dans serveur-jeu/
+- https://github.com/tiboitel/StarLoco-Login.git — tag v1.0.3
+
+Le dépôt du client Dofus n'est volontairement pas récupéré.

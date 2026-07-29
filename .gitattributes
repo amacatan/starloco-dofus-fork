@@ -1,0 +1,5 @@
+Retro-1.41.9/Retro/Dofus[[:space:]]Retro.exe filter=lfs diff=lfs merge=lfs -text
+starloco-offline/sources/starloco-docker/web/dofus/resources/app/retroclient/audio/musics.swf filter=lfs diff=lfs merge=lfs -text
+starloco-offline/runtime/stack/db-init/04-game.sql filter=lfs diff=lfs merge=lfs -text
+starloco-offline/sources/starloco-docker/db-init/04-game.sql filter=lfs diff=lfs merge=lfs -text
+starloco-offline/serveur-jeu/game.sql filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,114 @@
+package org.starloco.locos.game;
+
+import ch.qos.logback.classic.Level;
+import org.apache.mina.core.service.IoAcceptor;
+import org.apache.mina.core.session.IdleStatus;
+import org.apache.mina.filter.codec.ProtocolCodecFilter;
+import org.apache.mina.filter.codec.textline.LineDelimiter;
+import org.apache.mina.filter.codec.textline.TextLineCodecFactory;
+import org.apache.mina.transport.socket.nio.NioSocketAcceptor;
+import org.slf4j.LoggerFactory;
+import org.starloco.locos.client.Account;
+import org.starloco.locos.client.Player;
+import org.starloco.locos.game.world.World;
+import org.starloco.locos.kernel.Config;
+import org.starloco.locos.kernel.Main;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import ch.qos.logback.classic.Logger;
+import java.util.stream.Collectors;
+
+public class GameServer {
+    public static short MAX_PLAYERS = 10000;
+
+    private final ConcurrentMap<Integer, Account> waitingClients = new ConcurrentHashMap<>();
+    private final IoAcceptor acceptor;
+
+    public GameServer() {
+        Config.gameServer = this;
+        this.acceptor = new NioSocketAcceptor();
+        this.acceptor.getFilterChain().addLast("codec", new ProtocolCodecFilter(new TextLineCodecFactory(StandardCharsets.UTF_8, LineDelimiter.NUL, new LineDelimiter("\n\0"))));
+        this.acceptor.getSessionConfig().setIdleTime(IdleStatus.BOTH_IDLE, 60 * 10 /*10 Minutes*/);
+        this.acceptor.setHandler(new GameHandler());
+
+        ((Logger)LoggerFactory.getLogger("org.apache.mina.filter.codec.ProtocolCodecFilter")).setLevel(Level.OFF);
+    }
+    public void initialize() {
+        while (!this.acceptor.isActive()) {
+            try {
+                this.acceptor.bind(new InetSocketAddress(Config.gamePort));
+                Main.logger.info("The game server started on address : " + Config.gamePort);
+            } catch (IOException e) {
+                Main.logger.error("The address '" + Config.gamePort + "' is already in use. Retrying in 3 seconds.");
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while waiting to bind the game server", interrupted);
+                }
+            }
+        }
+    }
+
+    public void close() {
+        if (!this.acceptor.isActive())
+            return;
+
+        this.acceptor.getManagedSessions().values().stream().filter(session -> session.isConnected() || !session.isClosing()).forEach(session -> session.close(true));
+        this.acceptor.dispose();
+        this.acceptor.unbind();
+        Main.logger.error("The game server was stopped.");
+    }
+
+    public ArrayList<GameClient> getClients() {
+        return acceptor.getManagedSessions().values().stream().filter(session -> session.getAttribute("client") != null).map(session -> (GameClient) session.getAttribute("client")).collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    public int getPlayersNumberByIp() {
+        ArrayList<String> IPS = new ArrayList<>();
+        this.getClients().stream().filter(client -> client != null && client.getAccount() != null).forEach(client -> {
+            String IP = client.getAccount().getCurrentIp();
+            if (!IP.equalsIgnoreCase("") && !IPS.contains(IP)) IPS.add(IP);
+        });
+        return IPS.size();
+    }
+
+    public static void setState(int state) {
+        if (Config.exchangeClient != null && Config.exchangeClient.getConnectFuture() != null && !Config.exchangeClient.getConnectFuture().isCanceled() && Config.exchangeClient.getConnectFuture().isConnected())
+            Config.exchangeClient.send("SS" + state);
+    }
+
+    public Account getWaitingAccount(int id) {
+        return this.waitingClients.get(id);
+    }
+
+    public void deleteWaitingAccount(Account account) {
+        if (account != null) {
+            this.waitingClients.remove(account.getId(), account);
+        }
+    }
+
+    public void addWaitingAccount(Account account) {
+        if (account != null) {
+            this.waitingClients.put(account.getId(), account);
+        }
+    }
+
+    public static void a() {}
+
+    public void kickAll(boolean kickGm) {
+        for (Player player : new ArrayList<>(World.world.getOnlinePlayers())) {
+            if (player != null && player.getGameClient() != null) {
+                if (player.getGroup() != null && !player.getGroup().isPlayer() && kickGm)
+                    continue;
+                player.send("M04");
+                ((GameHandler) player.getGameClient().getSession().getHandler()).kick(player.getGameClient().getSession());
+            }
+        }
+    }
+}

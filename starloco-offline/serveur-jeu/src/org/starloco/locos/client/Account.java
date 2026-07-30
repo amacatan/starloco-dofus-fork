@@ -300,7 +300,8 @@ public class Account {
 
     public void sendOnline() {
         for (int id : this.friends) {
-            Player player = World.world.getPlayer(id);
+            Account friendAccount = World.world.ensureAccountLoaded(id);
+            Player player = friendAccount == null ? null : friendAccount.getCurrentPlayer();
             if (player != null && player.is_showFriendConnection() && player.isOnline() && player.getAccount().isFriendWith(this.id))
                 SocketManager.GAME_SEND_FRIEND_ONLINE(this.currentPlayer, player);
         }

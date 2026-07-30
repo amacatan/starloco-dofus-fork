@@ -1,6 +1,5 @@
 package org.starloco.locos.game;
 
-import java.net.InetSocketAddress;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -131,7 +130,12 @@ public class GameClient {
     public void parsePacket(String packet) throws InterruptedException {
         this.lastPacketTime = System.currentTimeMillis();
 
-        if (packet.length() > 3 && packet.substring(0, 4).equalsIgnoreCase("ping")) {
+        if (packet == null || packet.isEmpty()) return;
+        if (packet.length() >= 5 && packet.substring(0, 5).equalsIgnoreCase("qping")) {
+            this.send("q");
+            return;
+        }
+        if (packet.length() >= 4 && packet.substring(0, 4).equalsIgnoreCase("ping")) {
             this.send("pong");
             return;
         }
@@ -140,8 +144,7 @@ public class GameClient {
             if (this.player != null) {
                 Logging.getInstance().write("RecvPacket", this.player.getName() + " : " + this.player.getAccount().getCurrentIp() + " : " + packetForLog);
             } else {
-                String IP = ((InetSocketAddress) (this.getSession().getRemoteAddress())).getAddress().getHostAddress();
-                Logging.getInstance().write("RecvPacket", IP + " : " + packetForLog);
+                Logging.getInstance().write("RecvPacket", GameHandler.remoteIp(this.session) + " : " + packetForLog);
             }
         }
 
@@ -159,7 +162,7 @@ public class GameClient {
                 }
             }
         }
-        if(packet.isEmpty()) return;
+        if(packet.length() < 2) return;
 
         switch (packet.charAt(0)) {
             case 'ù':
@@ -683,7 +686,7 @@ public class GameClient {
             } else {
                 Config.gameServer.deleteWaitingAccount(this.account);
 
-                String ip = this.session.getRemoteAddress().toString().substring(1).split(":")[0];
+                String ip = GameHandler.remoteIp(this.session);
                 Fight fight = null;
                 for(Player p : account.getPlayers().values())
                     if((fight = p.getFight()) != null)
@@ -756,11 +759,11 @@ public class GameClient {
     }
 
     private void authorisedCommand(String packet) {
-        if (this.adminUser == null) this.adminUser = new CommandAdmin(this.player);
-        if (this.player.getGroup() == null || this.getPlayer() == null) {
-            this.getAccount().getGameClient().kick();
+        if (this.getPlayer() == null || this.getAccount() == null || this.player.getGroup() == null) {
+            this.kick();
             return;
         }
+        if (this.adminUser == null) this.adminUser = new CommandAdmin(this.player);
 
         if (Logging.USE_LOG)
             Logging.getInstance().write("CommandAdmin", this.getAccount().getCurrentIp() + " : " + this.getAccount().getName() + " > " + this.getPlayer().getName() + " > " + packet.substring(2));
@@ -773,7 +776,7 @@ public class GameClient {
         calendar.setTime(new Date());
 
         this.send("BD" + calendar.get(Calendar.YEAR) + "|" + calendar.get(Calendar.MONTH) + "|" + calendar.get(Calendar.DAY_OF_MONTH));
-        this.send("BT" + (calendar.getTime().getTime() + 3600000));
+        this.send("BT" + calendar.getTimeInMillis());
     }
 
     private void tchat(String packet) {
@@ -1072,7 +1075,7 @@ public class GameClient {
                 this.player.send("PIEn" + player.getName());
                 return;
             }
-            if (this.player.getAccount().isFriendWith(player.getId()))
+            if (this.player.getAccount().isFriendWith(player.getAccount().getId()))
                 SocketManager.GAME_SEND_BWK(this.player, player.getAccount().getPseudo()
                         + "|1|"
                         + player.getName()

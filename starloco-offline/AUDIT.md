@@ -1,6 +1,6 @@
 # Audit final — compatibilité Dofus Retro 1.41.9
 
-Date : 26 juillet 2026
+Date : 30 juillet 2026
 
 ## Conclusion
 
@@ -50,6 +50,21 @@ Le paquet comprend l’archive d’images `docker-images/starloco-images.tar` et
 ### Game et échange
 
 - Les paquets vides ne provoquent plus d’accès hors limites.
+- Le ping rapide utilisé par Retro 1.41 (`qping`) reçoit désormais sa réponse
+  protocolaire `q`.
+- L’horloge `BT` utilise directement l’époque Unix courante, sans décalage
+  horaire fixe qui rendait l’heure fausse selon le fuseau et l’heure d’été.
+- Les paquets enveloppés avec le séparateur `ù` conservent leur charge utile
+  complète, y compris quand un message de discussion contient lui-même ce
+  caractère. Les trames enveloppées incomplètes sont ignorées.
+- L’extraction et le filtrage des adresses distantes acceptent IPv4 et IPv6
+  côté Login comme côté Game.
+- Les notifications de connexion d’un ami et l’affichage détaillé de `/whois`
+  comparent désormais des identifiants de compte, et non des identifiants de
+  personnage.
+- Une commande d’administration reçue avant l’initialisation complète du
+  personnage ferme proprement la session au lieu de provoquer une erreur
+  nulle.
 - Les tickets en attente sont stockés de façon concurrente.
 - Les erreurs de bind sont retentées de façon bornée sans récursion.
 - Les modifications de points passent par une mise à jour SQL transactionnelle portable.
@@ -123,6 +138,8 @@ La pile est conçue pour être pilotée par Docker Compose sur Ubuntu 24.04. Ell
 
 - `clean check jar` réussi pour StarLoco Game ;
 - `clean check jar` réussi pour StarLoco Login ;
+- contrôles Java ajoutés pour `qping`, `BD`/`BT`, les trames enveloppées,
+  les paquets tronqués et les adresses IPv4/IPv6 ;
 - analyse syntaxique des scripts Bash ;
 - validation de la configuration Docker Compose ;
 - 21 tests PHP du portail, de la création de compte, des migrations et du fil communautaire : 21 réussis, 0 échec.

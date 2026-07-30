@@ -12,13 +12,16 @@ import org.starloco.locos.game.filter.PacketFilter;
 import org.starloco.locos.game.world.World;
 import org.starloco.locos.kernel.Config;
 
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+
 public class GameHandler implements IoHandler {
     private final static Logger logger = LoggerFactory.getLogger(GameHandler.class);
     private final static PacketFilter filter = new PacketFilter().activeSafeMode();
 
     @Override
     public void sessionCreated(IoSession arg0) {
-        if (!filter.authorizes(arg0.getRemoteAddress().toString().substring(1).split(":")[0])) {
+        if (!filter.authorizes(remoteIp(arg0))) {
             arg0.close(true);
         } else {
             World.world.logger.info("Session " + arg0.getId() + " created");
@@ -50,10 +53,9 @@ public class GameHandler implements IoHandler {
             if (p.isEmpty()) {
                 continue;
             }
-            if(p.charAt(0) == 'ù') {
-                String[] wrappedPacket = p.split("ù", -1);
-                if(wrappedPacket.length < 3 || wrappedPacket[2].isEmpty()) continue;
-                p = wrappedPacket[2];
+            p = unwrapClientPacket(p);
+            if (p == null) {
+                continue;
             }
             try {
                 if(p.length() > 1) {
@@ -64,7 +66,7 @@ public class GameHandler implements IoHandler {
                         abstractDofusMessage.setClient(client);
                         logger.info("Receive message: {} with header: {}", abstractDofusMessage.getClass().getName(), p.substring(0, 2));
                         EventDispatcherFactory.dispatch(abstractDofusMessage);
-                        return;
+                        continue;
                     }
                 }
                 client.parsePacket(p);
@@ -77,6 +79,33 @@ public class GameHandler implements IoHandler {
                 }
             }
         }
+    }
+
+    public static String remoteIp(IoSession session) {
+        SocketAddress remoteAddress = session == null ? null : session.getRemoteAddress();
+        if (remoteAddress instanceof InetSocketAddress) {
+            InetSocketAddress inetAddress = (InetSocketAddress) remoteAddress;
+            if (inetAddress.getAddress() != null) {
+                return inetAddress.getAddress().getHostAddress();
+            }
+            return inetAddress.getHostString();
+        }
+        return remoteAddress == null ? "" : remoteAddress.toString();
+    }
+
+    public static String unwrapClientPacket(String packet) {
+        if (packet == null || packet.isEmpty()) {
+            return null;
+        }
+        if (packet.charAt(0) != 'ù') {
+            return packet;
+        }
+
+        String[] wrappedPacket = packet.split("ù", 3);
+        if (wrappedPacket.length < 3 || wrappedPacket[2].isEmpty()) {
+            return null;
+        }
+        return wrappedPacket[2];
     }
 
     @Override

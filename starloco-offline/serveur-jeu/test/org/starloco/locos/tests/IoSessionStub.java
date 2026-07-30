@@ -6,7 +6,9 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,8 +17,14 @@ public final class IoSessionStub implements InvocationHandler {
     private final Map<Object, Object> attributes = new HashMap<>();
     private final List<Object> writes = new ArrayList<>();
     private final IoSession session;
+    private final SocketAddress remoteAddress;
 
     public IoSessionStub() {
+        this(new InetSocketAddress("127.0.0.1", 12345));
+    }
+
+    public IoSessionStub(SocketAddress remoteAddress) {
+        this.remoteAddress = remoteAddress;
         this.session = (IoSession) Proxy.newProxyInstance(
                 IoSession.class.getClassLoader(),
                 new Class<?>[]{IoSession.class},
@@ -32,6 +40,10 @@ public final class IoSessionStub implements InvocationHandler {
         return writes.size();
     }
 
+    public List<Object> writes() {
+        return Collections.unmodifiableList(writes);
+    }
+
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) {
         String name = method.getName();
@@ -39,7 +51,7 @@ public final class IoSessionStub implements InvocationHandler {
             return 1L;
         }
         if ("getRemoteAddress".equals(name)) {
-            return new InetSocketAddress("127.0.0.1", 12345);
+            return remoteAddress;
         }
         if ("getAttribute".equals(name)) {
             Object value = attributes.get(args[0]);

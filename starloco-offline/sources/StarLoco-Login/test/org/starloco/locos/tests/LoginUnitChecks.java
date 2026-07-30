@@ -5,10 +5,13 @@ import org.starloco.locos.database.data.AccountDataChecks;
 import org.starloco.locos.kernel.Config;
 import org.starloco.locos.kernel.Console;
 import org.starloco.locos.login.LoginClient;
+import org.starloco.locos.login.LoginHandler;
 import org.starloco.locos.login.LoginLoggingChecks;
 import org.starloco.locos.login.packet.VersionAndServerListChecks;
 
 import java.io.File;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 
 public final class LoginUnitChecks {
     private LoginUnitChecks() {
@@ -18,6 +21,7 @@ public final class LoginUnitChecks {
         new File("logs").mkdirs();
         Console.instance = new Console();
         loginClientAndMalformedPackets();
+        remoteAddressesSupportIpv4AndIpv6();
         AccountDataChecks.run();
         LoginLoggingChecks.run();
         VersionAndServerListChecks.run();
@@ -53,6 +57,21 @@ public final class LoginUnitChecks {
         check(shortServerPacketSession.closeCount() == 1, "A short authenticated packet must close cleanly");
         check("AlEf".equals(shortServerPacketSession.lastPacket()),
                 "A short authenticated packet must return a generic login error");
+    }
+
+    private static void remoteAddressesSupportIpv4AndIpv6() {
+        IoSessionStub ipv4 = new IoSessionStub();
+        check("127.0.0.1".equals(LoginHandler.remoteIp(ipv4.session())),
+                "Login must extract an IPv4 address without its port");
+
+        try {
+            InetAddress loopbackV6 = InetAddress.getByName("::1");
+            IoSessionStub ipv6 = new IoSessionStub(new InetSocketAddress(loopbackV6, 12345));
+            check(loopbackV6.getHostAddress().equals(LoginHandler.remoteIp(ipv6.session())),
+                    "Login must not truncate an IPv6 address at the first colon");
+        } catch (Exception error) {
+            throw new AssertionError("IPv6 loopback must be available to the unit test", error);
+        }
     }
 
     private static void check(boolean condition, String message) {

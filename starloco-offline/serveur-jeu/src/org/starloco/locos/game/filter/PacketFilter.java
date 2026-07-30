@@ -64,6 +64,16 @@ public class PacketFilter {
     }
 
     private String clearIp(String ip) {
-        return ip.contains(":") ? ip.split(":")[0] : ip;
+        if (ip == null) {
+            return "";
+        }
+        if (ip.startsWith("[")) {
+            int bracket = ip.indexOf(']');
+            return bracket > 1 ? ip.substring(1, bracket) : ip;
+        }
+
+        int firstColon = ip.indexOf(':');
+        int lastColon = ip.lastIndexOf(':');
+        return firstColon > 0 && firstColon == lastColon ? ip.substring(0, firstColon) : ip;
     }
 }

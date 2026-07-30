@@ -8,6 +8,8 @@ import org.starloco.locos.kernel.Console;
 import org.starloco.locos.tool.packetfilter.PacketFilter;
 
 import java.io.PrintStream;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.Random;
 
 public class LoginHandler implements IoHandler {
@@ -77,14 +79,25 @@ public class LoginHandler implements IoHandler {
 
     @Override
     public void sessionCreated(IoSession arg0) {
-        if (!filter.authorizes(arg0.getRemoteAddress().toString().substring(1).split(":")[0]))
+        String ip = remoteIp(arg0);
+        if (!filter.authorizes(ip))
             arg0.close(true);
         else {
-
-            String ip = arg0.getRemoteAddress().toString().substring(1).split(":")[0];
             Console.instance.write("session " + arg0.getId() + " created ip :" + ip);
             arg0.setAttribute("client", new LoginClient(arg0, generateKey()));
         }
+    }
+
+    public static String remoteIp(IoSession session) {
+        SocketAddress remoteAddress = session == null ? null : session.getRemoteAddress();
+        if (remoteAddress instanceof InetSocketAddress) {
+            InetSocketAddress inetAddress = (InetSocketAddress) remoteAddress;
+            if (inetAddress.getAddress() != null) {
+                return inetAddress.getAddress().getHostAddress();
+            }
+            return inetAddress.getHostString();
+        }
+        return remoteAddress == null ? "" : remoteAddress.toString();
     }
 
     @Override

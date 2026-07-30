@@ -25,9 +25,14 @@ public class Guild {
     private final long date;
     private String name = "", emblem = "";
     private int lvl, capital = 0, nbCollectors = 0;
+    private String note = "", noteAuthor = "";
+    private long noteDate = 0;
+    private String informations = "", informationsAuthor = "";
+    private long informationsDate = 0;
     private final Map<Integer, GuildMember> members = new TreeMap<>();
     private final Map<Integer, SortStats> spells = new HashMap<>(); // <Id, Level>
     private final Map<Integer, Integer> stats = new HashMap<>(); // <Effect, Quantity>
+    private final Map<Integer, String> rankNames = new TreeMap<>();
 
     public Guild(String name, String emblem) {
         this.name = name;
@@ -41,6 +46,13 @@ public class Guild {
     }
 
     public Guild(int id, String name, String emblem, int lvl, long xp, int capital, int nbCollectors, String sorts, String stats, long date) {
+        this(id, name, emblem, lvl, xp, capital, nbCollectors, sorts, stats, date,
+                "", "", 0, "", "", 0, "");
+    }
+
+    public Guild(int id, String name, String emblem, int lvl, long xp, int capital, int nbCollectors,
+                 String sorts, String stats, long date, String note, String noteAuthor, long noteDate,
+                 String informations, String informationsAuthor, long informationsDate, String rankNames) {
         this.id = id;
         this.name = name;
         this.emblem = emblem;
@@ -49,11 +61,19 @@ public class Guild {
         this.capital = capital;
         this.nbCollectors = nbCollectors;
         this.date = date;
+        this.note = note == null ? "" : note;
+        this.noteAuthor = noteAuthor == null ? "" : noteAuthor;
+        this.noteDate = noteDate;
+        this.informations = informations == null ? "" : informations;
+        this.informationsAuthor = informationsAuthor == null ? "" : informationsAuthor;
+        this.informationsDate = informationsDate;
+        this.rankNames.putAll(GuildFeatureCodec.parseStoredRankNames(rankNames));
         this.decompileSpell(sorts);
         this.decompileStats(stats);
     }
 
-    public void addMember(int id, int r, byte pXp, long x, int ri, String lastCo) {
+    public synchronized void addMember(int id, int r, byte pXp, long x, int ri,
+                                       String lastCo) {
         GuildMember guildMember = new GuildMember(id, this, r, x, pXp, ri, lastCo);
         this.members.put(id, guildMember);
         if(guildMember.getPlayer() != null) {
@@ -61,7 +81,7 @@ public class Guild {
         }
     }
 
-    public GuildMember addNewMember(Player player) {
+    public synchronized GuildMember addNewMember(Player player) {
         GuildMember guildMember = new GuildMember(player.getId(), this, 0, 0, (byte) 0, 0, player.getAccount().getLastConnectionDate());
         this.members.put(player.getId(), guildMember);
         guildMember.getPlayer().setGuildMember(guildMember);
@@ -104,6 +124,70 @@ public class Guild {
         return date;
     }
 
+    public synchronized String getNote() {
+        return note;
+    }
+
+    public synchronized String getNoteAuthor() {
+        return noteAuthor;
+    }
+
+    public synchronized long getNoteDate() {
+        return noteDate;
+    }
+
+    public synchronized void updateNote(String note, String author, long timestamp) {
+        this.note = note;
+        this.noteAuthor = author;
+        this.noteDate = timestamp;
+    }
+
+    public synchronized String getInformations() {
+        return informations;
+    }
+
+    public synchronized String getInformationsAuthor() {
+        return informationsAuthor;
+    }
+
+    public synchronized long getInformationsDate() {
+        return informationsDate;
+    }
+
+    public synchronized void updateInformations(String informations, String author, long timestamp) {
+        this.informations = informations;
+        this.informationsAuthor = author;
+        this.informationsDate = timestamp;
+    }
+
+    public synchronized String getRankNames() {
+        return GuildFeatureCodec.serializeRankNames(this.rankNames);
+    }
+
+    public synchronized String getRankNamesForClient() {
+        return GuildFeatureCodec.serializeRankNamesForClient(this.rankNames);
+    }
+
+    public synchronized void applyRankChanges(GuildFeatureCodec.RankChanges changes) {
+        if (changes.isResetAll()) {
+            this.rankNames.clear();
+            return;
+        }
+
+        for (Map.Entry<Integer, String> change : changes.getChanges().entrySet()) {
+            if ("0".equals(change.getValue())) {
+                this.rankNames.remove(change.getKey());
+            } else {
+                this.rankNames.put(change.getKey(), change.getValue());
+            }
+        }
+    }
+
+    public synchronized void restoreRankNames(String storedRankNames) {
+        this.rankNames.clear();
+        this.rankNames.putAll(GuildFeatureCodec.parseStoredRankNames(storedRankNames));
+    }
+
     public void boostSpell(int id) {
         SortStats SS = this.spells.get(id);
         if (SS != null && SS.getLevel() == 5)
@@ -139,11 +223,11 @@ public class Guild {
         return this.lvl;
     }
 
-    public boolean haveTenMembers() {
+    public synchronized boolean haveTenMembers() {
         return this.id == 1 || this.id == 2 || (this.members.size() >= 10);
     }
 
-    public List<Player> getPlayers() {
+    public synchronized List<Player> getPlayers() {
         //return this.members.stream().filter(guildMember -> guildMember.getPlayer() != null).map(GuildMember::getPlayer).collect(Collectors.toList());
     	ArrayList<Player> a = new ArrayList<>();
 		for (GuildMember GM : this.members.values())
@@ -152,11 +236,8 @@ public class Guild {
 		return a;
     }
 
-    public GuildMember getMember(int id) {
-        for(GuildMember guildMember : this.members.values())
-            if(guildMember.getPlayerId() == id)
-                return guildMember;
-        return null;
+    public synchronized GuildMember getMember(int id) {
+        return this.members.get(id);
     }
 
     public void removeMember(Player player) {
@@ -164,7 +245,9 @@ public class Guild {
         if (house != null)
             if (World.world.getHouseManager().houseOnGuild(this.id) > 0)
                 ((HouseData) DatabaseManager.get(HouseData.class)).updateGuild(house, 0, 0);
-        this.members.remove(player.getId());
+        synchronized (this) {
+            this.members.remove(player.getId());
+        }
         ((GuildMemberData) DatabaseManager.get(GuildMemberData.class)).delete(player);
     }
 
@@ -247,7 +330,7 @@ public class Guild {
         return String.join(",","DQ;" + getName(), String.valueOf(getStats(Constant.STATS_ADD_PODS)), String.valueOf(getStats(Constant.STATS_ADD_PROS)), String.valueOf(getStats(Constant.STATS_ADD_SAGE)), String.valueOf(getNbCollectors()));
     }
 
-    public String parseMembersToGM() {
+    public synchronized String parseMembersToGM() {
         StringBuilder str = new StringBuilder();
         for (GuildMember GM : this.members.values()) {
             String online = "0";

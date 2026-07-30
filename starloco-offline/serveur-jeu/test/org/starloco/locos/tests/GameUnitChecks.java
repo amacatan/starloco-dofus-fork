@@ -3,9 +3,14 @@ package org.starloco.locos.tests;
 import org.starloco.locos.database.data.game.DropDataChecks;
 import org.starloco.locos.database.data.game.ExtraMonsterDataChecks;
 import org.starloco.locos.database.data.login.AccountDataChecks;
+import org.starloco.locos.entity.CollectorChecks;
 import org.starloco.locos.game.GameClient;
 import org.starloco.locos.game.GameHandler;
+import org.starloco.locos.game.GameServer;
+import org.starloco.locos.game.DiceRollChecks;
 import org.starloco.locos.game.world.WorldExtraMonsterChecks;
+import org.starloco.locos.guild.GuildFeatureCodec;
+import org.starloco.locos.guild.GuildFeatureChecks;
 import org.starloco.locos.kernel.Config;
 import org.starloco.locos.kernel.Logging;
 
@@ -26,6 +31,12 @@ public final class GameUnitChecks {
         wrappedPacketsPreserveTheirPayload();
         remoteAddressesSupportIpv4AndIpv6();
         gameTicketsAreRedacted();
+        guildTextPacketsKeepTheirFrame();
+        guildInformationFitsTheTransportLimit();
+        spectatorRequestsUseAction976();
+        DiceRollChecks.run();
+        GuildFeatureChecks.run();
+        CollectorChecks.run();
         AccountDataChecks.run();
         DropDataChecks.run();
         ExtraMonsterDataChecks.run();
@@ -134,6 +145,38 @@ public final class GameUnitChecks {
                 "Ticket redaction must not depend on header casing");
         check("ALK0".equals(GameClient.packetForLog("ALK0")),
                 "Ordinary packets must remain diagnosable");
+    }
+
+    private static void guildTextPacketsKeepTheirFrame() {
+        check(GameHandler.isGuildTextPacket("gEINote\nmultiligne"),
+                "A multiline guild-information frame must not be split into commands");
+        check(GameHandler.isGuildTextPacket("gENNote"),
+                "Guild notes must use the protected text path");
+        check(!GameHandler.isGuildTextPacket("BD"),
+                "Ordinary packets must keep legacy batching support");
+    }
+
+    private static void guildInformationFitsTheTransportLimit() {
+        check(GameServer.MAX_INBOUND_PACKET_LENGTH
+                        >= GuildFeatureCodec.INFORMATIONS_MAX_LENGTH * 8 + 16,
+                "The decoder must accept the worst-case encrypted guild information frame");
+    }
+
+    private static void spectatorRequestsUseAction976() {
+        int[] local = GameClient.parseSpectatorRequest("GA97612;-1");
+        check(local != null && local[0] == 12 && local[1] == -1,
+                "A map fight must be selectable by its fight id");
+        int[] remote = GameClient.parseSpectatorRequest("GA9760;456");
+        check(remote != null && remote[0] == 0 && remote[1] == 456,
+                "A remote fighter must be selectable by player id");
+        check(GameClient.parseSpectatorRequest("GA9030;456") == null,
+                "GA903 must remain the ordinary team-join action");
+        check(GameClient.parseSpectatorRequest("GA9760;-1") == null,
+                "An empty spectator target must be rejected");
+        check(GameClient.parseSpectatorRequest("GA9761;-1;2") == null,
+                "Extra spectator fields must be rejected");
+        check(GameClient.parseSpectatorRequest("GA976999999999999;-1") == null,
+                "Overflowing spectator ids must be rejected");
     }
 
     private static void check(boolean condition, String message) {

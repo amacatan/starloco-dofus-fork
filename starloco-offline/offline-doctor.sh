@@ -93,6 +93,7 @@ required_files=(
   "$STACK/db-init/07-account-schema-assertions.sql"
   "$STACK/db-init/08-social-feed.sql"
   "$STACK/db-init/09-admin-console.sql"
+  "$STACK/db-init/10-guild-features.sql"
   "$STACK/web/public/app/social.php"
   "$STACK/web/public/app/admin.php"
   "$STACK/web/public/app/admin-layout.php"
@@ -145,6 +146,13 @@ if [[ -d "$game_repo/db-init" ]]; then
       fail "SQL jeu absent ou différent de la source : $sql_file"
     fi
   done
+  if [[ -s "$game_repo/db-init/10-guild-features.sql" ]] &&
+     cmp -s "$game_repo/db-init/10-guild-features.sql" \
+       "$STACK/db-init/10-guild-features.sql"; then
+    ok "SQL des fonctions de guilde fidèle à la source"
+  else
+    fail "migration des fonctions de guilde absente ou différente de la source"
+  fi
 fi
 if grep -Eiq '^[[:space:]]*create[[:space:]]+table[[:space:]]+quest_progress' \
      "$STACK/db-init/06-update_game_23.04.23.sql" &&
@@ -307,6 +315,39 @@ if $DOCKER_COMPOSE; then
         ok "stockage transactionnel et journal de la console admin prêts"
       else
         fail "schéma admin incohérent (attendu 2:1:2, obtenu ${admin_schema_state:-vide})"
+      fi
+
+      guild_schema_state="$(
+        compose exec -T -e MYSQL_PWD="$password" mariadb \
+          mariadb --protocol=tcp -h127.0.0.1 -ustarloco \
+          --batch --skip-column-names starloco_login \
+          -e "SELECT CONCAT(
+                (SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA='starloco_login'
+                   AND TABLE_NAME='world_guilds'
+                   AND COLUMN_NAME IN (
+                     'note','note_author','note_date','informations',
+                     'informations_author','informations_date','rank_names'
+                   )),
+                ':',
+                (SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA='starloco_login'
+                   AND TABLE_NAME='world_guilds'
+                   AND (
+                     (COLUMN_NAME='note' AND CHARACTER_MAXIMUM_LENGTH=256)
+                     OR (COLUMN_NAME='note_author' AND CHARACTER_MAXIMUM_LENGTH=50)
+                     OR (COLUMN_NAME='note_date' AND DATA_TYPE='bigint')
+                     OR (COLUMN_NAME='informations' AND CHARACTER_MAXIMUM_LENGTH=2560)
+                     OR (COLUMN_NAME='informations_author' AND CHARACTER_MAXIMUM_LENGTH=50)
+                     OR (COLUMN_NAME='informations_date' AND DATA_TYPE='bigint')
+                     OR (COLUMN_NAME='rank_names' AND CHARACTER_MAXIMUM_LENGTH=2048)
+                   ))
+              );" 2>/dev/null || true
+      )"
+      if [[ "$guild_schema_state" == "7:7" ]]; then
+        ok "stockage des notes, informations et rangs de guilde prêt"
+      else
+        fail "schéma des fonctions de guilde incohérent (attendu 7:7, obtenu ${guild_schema_state:-vide})"
       fi
 
       game_patch_state="$(

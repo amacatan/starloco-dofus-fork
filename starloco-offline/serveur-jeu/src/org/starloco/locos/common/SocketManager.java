@@ -29,6 +29,7 @@ import org.starloco.locos.object.GameObject;
 import org.starloco.locos.object.ObjectSet;
 import org.starloco.locos.object.ObjectTemplate;
 import org.starloco.locos.guild.Guild;
+import org.starloco.locos.guild.GuildFeatureCodec;
 import org.starloco.locos.guild.GuildMember;
 import org.starloco.locos.util.Pair;
 
@@ -48,6 +49,44 @@ public class SocketManager {
     public static void send(GameClient client, String packet) {
         if (client != null && client.getSession() != null && !client.getSession().isClosing() && client.getSession().isConnected()) {
             client.send(packet);
+        }
+    }
+
+    static boolean includesFightViewers(int teams) {
+        return (teams & 4) != 0;
+    }
+
+    private static Collection<Player> getFightPacketRecipients(Fight fight, int teams) {
+        Set<Player> recipients = new LinkedHashSet<>();
+        if (fight == null)
+            return recipients;
+
+        for (Fighter fighter : fight.getFighters(teams)) {
+            if (fighter == null || fighter.hasLeft() || fighter.getPlayer() == null
+                    || !fighter.getPlayer().isOnline())
+                continue;
+            recipients.add(fighter.getPlayer());
+        }
+        if (includesFightViewers(teams)) {
+            for (Player viewer : fight.getViewers()) {
+                if (viewer != null && viewer.isOnline())
+                    recipients.add(viewer);
+            }
+        }
+        return recipients;
+    }
+
+    private static void sendToFight(Fight fight, int teams, String packet) {
+        for (Player recipient : getFightPacketRecipients(fight, teams))
+            send(recipient, packet);
+    }
+
+    private static void sendToFightViewers(Fight fight, int teams, String packet) {
+        if (fight == null || !includesFightViewers(teams))
+            return;
+        for (Player viewer : fight.getViewers()) {
+            if (viewer != null && viewer.isOnline())
+                send(viewer, packet);
         }
     }
 
@@ -348,24 +387,14 @@ public class SocketManager {
                                                            int type) {
         StringBuilder packet = new StringBuilder();
         packet.append("GJK").append(state).append("|").append(cancelBtn).append("|").append(duel).append("|").append(spec).append("|").append(time).append("|").append(type);
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            send(f.getPlayer(), packet.toString());
-        }
+        sendToFight(fight, teams, packet.toString());
     }
 
     public static void GAME_SEND_FIGHT_PLACES_PACKET_TO_FIGHT(Fight fight, int teams, List<List<Integer>> positions, int team) {
         if(positions.size() != 2) throw new IllegalStateException("attempted to send invalid number of fight positions");
 
         String packet = "GP" + MapData.encodePositions(positions) + "|" + team;
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_MAP_FIGHT_COUNT_TO_MAP(GameMap map) {
@@ -467,17 +496,13 @@ public class SocketManager {
                 continue;
             send(z.getPlayer(), packet);
         }
+        for (Player viewer : F.getViewers())
+            send(viewer, packet);
     }
 
     public static void GAME_SEND_FIGHT_CHANGE_PLACE_PACKET_TO_FIGHT(Fight fight, int teams, int guid, int cell) {
         String packet = "GIC|" + guid + ";" + cell + ";1";
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_Ew_PACKET(Player perso, int pods, int podsMax) { //Pods de la dinde
@@ -549,13 +574,7 @@ public class SocketManager {
         String packet = "GR" + (b ? "1" : "0") + guid;
         if (fight.getState() != 2)
             return;
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            if (f.hasLeft())
-                continue;
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_GJK_PACKET(Player out, int state,
@@ -603,13 +622,7 @@ public class SocketManager {
     public static void GAME_SEND_Im_PACKET_TO_FIGHT(Fight fight, int teams,
                                                     String id) {
         String packet = "Im" + id;
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_MESSAGE(Player out, String mess, String color) {
@@ -644,15 +657,12 @@ public class SocketManager {
                 continue;
             packet.append(p.getId()).append(";").append(p.getCell().getId()).append(";1|");
         }
-        fight.getFighters(teams).stream()
-            .filter(not(Fighter::hasLeft))
-            .forEach(f -> f.send(packet.toString()));
+        sendToFight(fight, teams, packet.toString());
     }
 
     public static void GAME_SEND_GIC_PACKET_TO_FIGHT(Fight fight, int teams, Fighter fighter) {
-        fight.getFighters(teams).stream()
-            .filter(not(Fighter::hasLeft))
-            .forEach(f -> f.send("GIC|" + fighter.getId() + ";" + fighter.getCell().getId() + ";1|"));
+        sendToFight(fight, teams,
+                "GIC|" + fighter.getId() + ";" + fighter.getCell().getId() + ";1|");
     }
 
     public static void GAME_SEND_GS_PACKET_TO_FIGHT(Fight fight, int teams) {
@@ -664,6 +674,7 @@ public class SocketManager {
 
             f.send(packet);
         }
+        sendToFightViewers(fight, teams, packet);
     }
 
     public static void GAME_SEND_GS_PACKET(Player out) {
@@ -672,13 +683,7 @@ public class SocketManager {
     }
 
     public static void GAME_SEND_GTL_PACKET_TO_FIGHT(Fight fight, int teams) {
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            send(f.getPlayer(), fight.getGTL());
-        }
+        sendToFight(fight, teams, fight.getGTL());
     }
 
     public static void GAME_SEND_GTL_PACKET(Player out, Fight fight) {
@@ -702,25 +707,12 @@ public class SocketManager {
             packet.append(";");//??
             packet.append(f.getPdvMax());
         }
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            send(f.getPlayer(), packet.toString());
-        }
+        sendToFight(fight, teams, packet.toString());
     }
 
     public static void GAME_SEND_GAMETURNSTART_PACKET_TO_FIGHT(Fight fight, int teams, int guid, int time, int turns) {
         String packet = "GTS" + guid + "|" + time + "|" + turns;
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_GAMETURNSTART_PACKET(Player P, int guid,
@@ -736,13 +728,7 @@ public class SocketManager {
 
     public static void GAME_SEND_GAS_PACKET_TO_FIGHT(Fight fight, int teams, int guid) {
         String packet = "GAS" + guid;
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_GA_PACKET_TO_FIGHT(Fight fight, int teams, int actionID, String s1, String s2) {
@@ -750,13 +736,7 @@ public class SocketManager {
 
         if (!s2.equals(""))
             packet += ";" + s2;
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_GA_PACKET(Player perso, int actionID, String s1, String s2) {
@@ -784,32 +764,16 @@ public class SocketManager {
 
     public static void GAME_SEND_GA_PACKET_TO_FIGHT(Fight fight, int teams, int gameActionID, String s1, String s2, String s3) {
         String packet = "GA" + gameActionID + ";" + s1 + ";" + s2 + ";" + s3;
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_GAMEACTION_TO_FIGHT(Fight fight, int teams, String packet) {
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_GAF_PACKET_TO_FIGHT(Fight fight, int teams, int i1, int guid) {
         String packet = "GAF" + i1 + "|" + guid;
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_BN(Player out) {
@@ -824,25 +788,12 @@ public class SocketManager {
 
     public static void GAME_SEND_GAMETURNSTOP_PACKET_TO_FIGHT(Fight fight, int teams, int guid) {
         String packet = "GTF" + guid;
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_GTR_PACKET_TO_FIGHT(Fight fight, int teams, int guid) {
         String packet = "GTR" + guid;
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_EMOTICONE_TO_MAP(GameMap map, int guid, int id) {
@@ -868,24 +819,13 @@ public class SocketManager {
 
     public static void GAME_SEND_FIGHT_PLAYER_DIE_TO_FIGHT(Fight fight, int teams, int guid) {
         String packet = "GA;103;" + guid + ";" + guid;
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft() || f.getPlayer() == null)
-                continue;
-            if (f.getPlayer().isOnline())
-                send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_MAP_FIGHT_GMS_PACKETS_TO_FIGHT(Fight fight,
                                                                 int teams, GameMap map) {
         String packet = map.getFightersGMsPackets(fight);
-        for (Fighter f : fight.getFighters(teams)) {
-            if (f.hasLeft())
-                continue;
-            if (f.getPlayer() == null || !f.getPlayer().isOnline())
-                continue;
-            send(f.getPlayer(), packet);
-        }
+        sendToFight(fight, teams, packet);
     }
 
     public static void GAME_SEND_MAP_FIGHT_GMS_PACKETS(Fight fight, GameMap map, Player _perso) {
@@ -1702,12 +1642,42 @@ public class SocketManager {
         if (g == null) {
             send(p, "gIG");
         } else {
-            ExperienceTables.ExperienceTable xpTable = World.world.getExperiences().guilds;
-
-            long xpMin = xpTable.minXpAt(g.getLvl());
-            long xpMax = xpTable.maxXpAt(g.getLvl());
-            send(p, "gIG" + (g.haveTenMembers() ? 1 : 0) + "|" + g.getLvl() + "|" + xpMin + "|" + g.getXp() + "|" + xpMax);
+            final String packet;
+            synchronized (g) {
+                ExperienceTables.ExperienceTable xpTable = World.world.getExperiences().guilds;
+                long xpMin = xpTable.minXpAt(g.getLvl());
+                long xpMax = xpTable.maxXpAt(g.getLvl());
+                packet = "gIG" + (g.haveTenMembers() ? 1 : 0) + "|" + g.getLvl() + "|"
+                        + xpMin + "|" + g.getXp() + "|" + xpMax + "|" + g.getNoteDate()
+                        + "|" + GuildFeatureCodec.escapeForClient(g.getNoteAuthor()) + "|"
+                        + GuildFeatureCodec.escapeForClient(g.getNote());
+            }
+            send(p, packet);
         }
+    }
+
+    public static void GAME_SEND_gII_PACKET(Player player, Guild guild) {
+        if (guild == null) {
+            send(player, "gII");
+            return;
+        }
+        final String packet;
+        synchronized (guild) {
+            packet = "gII" + guild.getInformationsDate() + "|"
+                    + GuildFeatureCodec.escapeForClient(guild.getInformationsAuthor()) + "|"
+                    + GuildFeatureCodec.escapeForClient(guild.getInformations());
+        }
+        send(player, packet);
+    }
+
+    public static void GAME_SEND_gRE_PACKET(Player player, Guild guild) {
+        if (guild != null) {
+            GAME_SEND_gRE_PACKET(player, guild.getRankNamesForClient());
+        }
+    }
+
+    public static void GAME_SEND_gRE_PACKET(Player player, String payload) {
+        send(player, "gRE" + payload);
     }
 
     public static void GAME_SEND_WC_PACKET(Player perso) {

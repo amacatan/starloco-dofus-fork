@@ -61,30 +61,63 @@ public class GuildMemberData extends FunctionDAO<Player> {
 
     @Override
     public void update(Player player) {
-        PreparedStatement p = null;
-        try {
-            p = getPreparedStatement("REPLACE INTO " + getTableName() + " VALUES(?,?,?,?,?,?,?,?,?,?,?)");
-            GuildMember gm = player.getGuildMember();
-            if(gm == null) return;
-            p.setInt(1, gm.getPlayerId());
-            p.setInt(2, gm.getGuild().getId());
-            p.setString(3, player.getName());
-            p.setInt(4, gm.getLvl());
-            int gfx = gm.getGfx();
-            if (gfx > 121 || gfx < 10)
-                gfx = player.getClasse() * 10 + player.getSexe();
-            p.setInt(5, gfx);
-            p.setInt(6, gm.getRank());
-            p.setLong(7, gm.getXpGave());
-            p.setInt(8, gm.getXpGive());
-            p.setInt(9, gm.getRights());
-            p.setInt(10, gm.getAlign());
-            p.setString(11, gm.getLastCo());
-            execute(p);
-        } catch (SQLException e) {
-            super.sendError(e);
-        } finally {
-            close(p);
+        GuildMember gm = player == null ? null : player.getGuildMember();
+        if (gm == null) {
+            return;
+        }
+
+        synchronized (gm) {
+            PreparedStatement p = null;
+            try {
+                p = getPreparedStatement("REPLACE INTO " + getTableName()
+                        + " VALUES(?,?,?,?,?,?,?,?,?,?,?)");
+                p.setInt(1, gm.getPlayerId());
+                p.setInt(2, gm.getGuild().getId());
+                p.setString(3, player.getName());
+                p.setInt(4, gm.getLvl());
+                int gfx = gm.getGfx();
+                if (gfx > 121 || gfx < 10)
+                    gfx = player.getClasse() * 10 + player.getSexe();
+                p.setInt(5, gfx);
+                p.setInt(6, gm.getRank());
+                p.setLong(7, gm.getXpGave());
+                p.setInt(8, gm.getXpGive());
+                p.setInt(9, gm.getRights());
+                p.setInt(10, gm.getAlign());
+                p.setString(11, gm.getLastCo());
+                execute(p);
+            } catch (SQLException e) {
+                super.sendError(e);
+            } finally {
+                close(p);
+            }
+        }
+    }
+
+    /**
+     * Persists the fields editable from the guild member panel without
+     * requiring the target player to be online or loaded.
+     */
+    public void updateMembership(GuildMember member) {
+        if (member == null) {
+            return;
+        }
+
+        synchronized (member) {
+            PreparedStatement p = null;
+            try {
+                p = getPreparedStatement("UPDATE " + getTableName()
+                        + " SET `rank` = ?, `pxp` = ?, `rights` = ? WHERE `guid` = ?");
+                p.setInt(1, member.getRank());
+                p.setInt(2, member.getXpGive());
+                p.setInt(3, member.getRights());
+                p.setInt(4, member.getPlayerId());
+                execute(p);
+            } catch (SQLException e) {
+                super.sendError(e);
+            } finally {
+                close(p);
+            }
         }
     }
 

@@ -3401,13 +3401,14 @@ public class Player implements Scripted<SPlayer>, Actor {
     }
 
     public void refreshMapAfterFight() {
+        this.fight = null;
+        this.away = false;
+        this._spec = false;
         SocketManager.send(this, "ILS" + 2000);
         this.regenRate = 2000;
         this.curMap.addPlayer(this);
         if (getAccount().getGameClient() != null)
             SocketManager.GAME_SEND_STATS_PACKET(this);
-        this.fight = null;
-        this.away = false;
     }
 
     public long getBankKamas() {

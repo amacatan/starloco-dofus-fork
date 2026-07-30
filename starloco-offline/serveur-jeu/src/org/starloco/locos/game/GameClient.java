@@ -3,6 +3,7 @@ package org.starloco.locos.game;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
@@ -59,6 +60,7 @@ import org.starloco.locos.game.action.GameAction;
 import org.starloco.locos.game.world.World;
 import org.starloco.locos.game.world.World.Couple;
 import org.starloco.locos.guild.Guild;
+import org.starloco.locos.guild.GuildFeatureCodec;
 import org.starloco.locos.guild.GuildMember;
 import org.starloco.locos.hdv.BigStoreListing;
 import org.starloco.locos.job.Job;
@@ -89,6 +91,7 @@ public class GameClient {
     private LangEnum language = LangEnum.ENGLISH;
     private final Map<Integer, GameAction> actions = new HashMap<>();
     public long timeLastTradeMsg = 0, timeLastRecrutmentMsg = 0, timeLastAlignMsg = 0, timeLastChatMsg = 0, timeLastIncarnamMsg = 0, timeLastTaverne, lastPacketTime = 0, action = 0;
+    private long timeLastDiceRoll = 0;
 
     private String preparedKeys;
 
@@ -239,6 +242,11 @@ public class GameClient {
                 break;
             case 'W':
                 parseWaypointPacket(packet);
+                break;
+            case 'Y':
+                if (packet.length() > 1 && packet.charAt(1) == 'd') {
+                    rollDice(packet);
+                }
                 break;
             default:
                 if(this.player != null)
@@ -777,6 +785,80 @@ public class GameClient {
 
         this.send("BD" + calendar.get(Calendar.YEAR) + "|" + calendar.get(Calendar.MONTH) + "|" + calendar.get(Calendar.DAY_OF_MONTH));
         this.send("BT" + calendar.getTimeInMillis());
+    }
+
+    private void rollDice(String packet) {
+        if (this.player == null || !this.player.isOnline()) {
+            return;
+        }
+
+        DiceRoll.ParseResult parsed = DiceRoll.parse(packet);
+        if (parsed.getErrorKey() != null) {
+            this.send(DiceRoll.errorPacket(parsed.getErrorKey(), parsed.getErrorArgument()));
+            return;
+        }
+        DiceRoll.Request request = parsed.getRequest();
+        if (request == null || !canReceiveDice(this.player, request.getChannel())) {
+            return;
+        }
+        if (request.getChannel() == '%' && this.player.getGuild() == null) {
+            return;
+        }
+        if (this.player.isMuted() || this.player.getCurMap() == null
+                || (this.player.getCurMap().isMute() && this.player.getGroup() == null)) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        int cooldown = DiceRoll.remainingCooldownSeconds(now, this.timeLastDiceRoll);
+        if (cooldown > 0) {
+            this.send(DiceRoll.errorPacket("DICE_ERROR_RATE_LIMITED", cooldown));
+            return;
+        }
+
+        long total = DiceRoll.roll(request, ThreadLocalRandom.current());
+        String response = DiceRoll.successPacket(this.player.getName(), request, total);
+        this.timeLastDiceRoll = now;
+
+        if (request.getChannel() == '%') {
+            for (Player guildPlayer : this.player.getGuild().getPlayers()) {
+                if (canReceiveDice(guildPlayer, '%')) {
+                    SocketManager.send(guildPlayer, response);
+                }
+            }
+            return;
+        }
+
+        if (this.player.getFight() == null) {
+            for (Player mapPlayer : this.player.getCurMap().getPlayers()) {
+                if (canReceiveDice(mapPlayer, '*')) {
+                    SocketManager.send(mapPlayer, response);
+                }
+            }
+            return;
+        }
+
+        Set<Player> recipients = new LinkedHashSet<>();
+        for (Fighter fighter : this.player.getFight().getFighters(3)) {
+            if (fighter != null && !fighter.hasLeft() && fighter.getPlayer() != null) {
+                recipients.add(fighter.getPlayer());
+            }
+        }
+        recipients.addAll(this.player.getFight().getViewers());
+        for (Player recipient : recipients) {
+            if (canReceiveDice(recipient, '*')) {
+                SocketManager.send(recipient, response);
+            }
+        }
+    }
+
+    private boolean canReceiveDice(Player recipient, char channel) {
+        if (recipient == null || !recipient.isOnline()
+                || !DiceRoll.channelEnabled(recipient.get_canaux(), channel)) {
+            return false;
+        }
+        return this.player.getAccount() == null || recipient.getAccount() == null
+                || !recipient.getAccount().isEnemyWith(this.player.getAccount().getId());
     }
 
     private void tchat(String packet) {
@@ -3270,9 +3352,19 @@ public class GameClient {
                 break;
             case '8'://Si Collector
                 Collector collector = World.world.getCollector(Integer.parseInt(packet.substring(4)));
-                if (collector == null || collector.getInFight() > 0 || collector.getExchange() || collector.getGuildId() != this.player.getGuild().getId() || collector.getMap() != this.player.getCurMap().getId())
+                Guild currentGuild = this.player.getGuild();
+                if (collector == null || currentGuild == null || collector.getInFight() > 0
+                        || collector.getExchange()
+                        || collector.getGuildId() != currentGuild.getId()
+                        || collector.getMap() != this.player.getCurMap().getId())
                     return;
-                if (!this.player.getGuildMember().canDo(Constant.G_COLLPERCO)) {
+                GuildMember collectorMember = this.player.getGuildMember();
+                boolean canCollectEveryCollector = collectorMember != null
+                        && collectorMember.canDo(Constant.G_COLLPERCO);
+                boolean canCollectOwnCollector = collectorMember != null
+                        && collectorMember.canDo(Constant.G_COLLPERCO_OWN)
+                        && collector.getPoseurId() == this.player.getId();
+                if (!canCollectEveryCollector && !canCollectOwnCollector) {
                     SocketManager.GAME_SEND_Im_PACKET(this.player, "1101");
                     return;
                 }
@@ -3985,6 +4077,10 @@ public class GameClient {
                 gameJoinFight(packet);
                 break;
 
+            case 976://Rejoindre un combat en spectateur
+                gameJoinFightAsSpectator(packet);
+                break;
+
             case 906://Agresser
                 if (Main.fightAsBlocked)
                     return;
@@ -4377,6 +4473,78 @@ public class GameClient {
         }
     }
 
+    private void gameJoinFightAsSpectator(String packet) {
+        int[] request = parseSpectatorRequest(packet);
+        if (request == null || this.player == null || !this.player.isOnline()
+                || this.player.getFight() != null || this.player.isDead() == 1
+                || this.player.isGhost() || this.player.isAway()
+                || this.player.getExchangeAction() != null
+                || this.player.getCurMap() == null || this.player.getCurCell() == null) {
+            return;
+        }
+
+        Fight fight;
+        if (request[0] > 0) {
+            fight = this.player.getCurMap().getFight(request[0]);
+        } else {
+            Player target = World.world.getPlayer(request[1]);
+            Fight targetFight = target == null ? null : target.getFight();
+            if (target == null || !target.isOnline() || targetFight == null
+                    || targetFight.getFighterByPerso(target) == null
+                    || !canSpectateRemotePlayer(target)) {
+                SocketManager.GAME_SEND_Im_PACKET(this.player, "157");
+                return;
+            }
+            fight = targetFight;
+        }
+
+        if (fight == null) {
+            SocketManager.GAME_SEND_Im_PACKET(this.player, "157");
+            return;
+        }
+        this.clearAllPanels(null);
+        fight.joinAsSpectator(this.player);
+    }
+
+    private boolean canSpectateRemotePlayer(Player target) {
+        if (this.player.getGroup() != null || this.player.getWife() == target.getId()
+                || target.getWife() == this.player.getId()) {
+            return true;
+        }
+        if (this.player.getGuild() != null && target.getGuild() != null
+                && this.player.getGuild().getId() == target.getGuild().getId()) {
+            return true;
+        }
+        return this.player.getAccount() != null && target.getAccount() != null
+                && (this.player.getAccount().isFriendWith(target.getAccount().getId())
+                || this.player.getAccount().isEnemyWith(target.getAccount().getId()));
+    }
+
+    public static int[] parseSpectatorRequest(String packet) {
+        if (packet == null || !packet.startsWith("GA976") || packet.length() <= 5) {
+            return null;
+        }
+
+        String[] fields = packet.substring(5).split(";", -1);
+        if (fields.length != 2) {
+            return null;
+        }
+
+        final int fightId;
+        final int targetId;
+        try {
+            fightId = Integer.parseInt(fields[0]);
+            targetId = Integer.parseInt(fields[1]);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+
+        if ((fightId > 0 && targetId == -1) || (fightId == 0 && targetId > 0)) {
+            return new int[]{fightId, targetId};
+        }
+        return null;
+    }
+
     private void gameAggro(String packet) {
         try {
             if (this.player == null || this.player.getFight() != null || this.player.isGhost() || this.player.isDead() == 1 || this.player.cantAgro())
@@ -4538,12 +4706,29 @@ public class GameClient {
     private void sendExtraInformations() {
         try {
             if(this.player == null) return;
-            if (this.player.getFight() != null && !this.player.getFight().isFinish()) {
-                //Only Collector
-                SocketManager.GAME_SEND_MAP_GMS_PACKETS(this.player.getFight().getMap(), this.player);
-                SocketManager.GAME_SEND_GDK_PACKET(this);
-                if (this.player.getFight().onPlayerReconnection(this.player))
-                    return;
+            Fight currentFight = this.player.getFight();
+            if (currentFight != null) {
+                if (!currentFight.isFinish() && currentFight.getMap() != null) {
+                    if (currentFight.isViewer(this.player)) {
+                        this.player.setSpec(true);
+                        if (currentFight.sendSpectatorSnapshot(this.player)) {
+                            SocketManager.GAME_SEND_GDK_PACKET(this);
+                            return;
+                        }
+                    } else if (currentFight.getFighterByPerso(this.player) != null) {
+                        // Reconnexion d'un combattant : conserver l'ordre historique
+                        // des paquets de chargement avant de restaurer le combat.
+                        SocketManager.GAME_SEND_MAP_GMS_PACKETS(currentFight.getMap(), this.player);
+                        SocketManager.GAME_SEND_GDK_PACKET(this);
+                        if (currentFight.onPlayerReconnection(this.player))
+                            return;
+                    }
+                }
+
+                // Un pointeur de combat sans combattant ni spectateur associé ne
+                // doit pas empêcher le chargement normal de la carte.
+                currentFight.removeViewer(this.player);
+                this.player.refreshMapAfterFight();
             }
 
             //Objets sur la Map
@@ -4767,6 +4952,9 @@ public class GameClient {
             case 'C'://Creation
                 createGuild(packet);
                 break;
+            case 'E'://Note, informations et noms de rang
+                editGuildFeature(packet.substring(2));
+                break;
             case 'f'://T?l?portation enclo de guilde
                 teleportToGuildFarm(packet.substring(2));
                 break;
@@ -4943,7 +5131,7 @@ public class GameClient {
             }
             Guild G = new Guild(name, emblem);
             GuildMember gm = G.addNewMember(this.player);
-            gm.setAllRights(1, (byte) 0, 1, this.player);//1 => Meneur (Tous droits)
+            gm.setAllRights(1, (byte) 0, 1);//1 => Meneur (Tous droits)
             this.player.setGuildMember(gm);//On ajthise le meneur
             World.world.addGuild(G);
             DatabaseManager.get(GuildMemberData.class).update(this.player);
@@ -5114,6 +5302,9 @@ public class GameClient {
     }
 
     private void getInfos(char c) {
+        if (this.player.getGuild() == null) {
+            return;
+        }
         switch (c) {
             case 'B'://Collector
                 SocketManager.GAME_SEND_gIB_PACKET(this.player, this.player.getGuild().parseCollectorToGuild());
@@ -5129,6 +5320,10 @@ public class GameClient {
                 break;
             case 'M'://Members
                 SocketManager.GAME_SEND_gIM_PACKET(this.player, this.player.getGuild(), '+');
+                SocketManager.GAME_SEND_gRE_PACKET(this.player, this.player.getGuild());
+                break;
+            case 'I'://Informations détaillées
+                SocketManager.GAME_SEND_gII_PACKET(this.player, this.player.getGuild());
                 break;
             case 'T'://Collector
                 SocketManager.GAME_SEND_gITM_PACKET(this.player, Collector.parseToGuild(this.player.getGuild().getId()));
@@ -5136,6 +5331,123 @@ public class GameClient {
                 Collector.parseDefense(this.player, this.player.getGuild().getId());
                 break;
         }
+    }
+
+    private void editGuildFeature(String packet) {
+        Guild guild = this.player.getGuild();
+        GuildMember member = this.player.getGuildMember();
+        if (guild == null || member == null || packet == null || packet.isEmpty()) {
+            return;
+        }
+
+        String value = packet.substring(1);
+        switch (packet.charAt(0)) {
+            case 'N':
+                if (member.getRank() != 1
+                        && !member.canDo(Constant.G_EDIT_GUILD_NOTES)) {
+                    SocketManager.GAME_SEND_Im_PACKET(this.player, "1101");
+                    return;
+                }
+                value = GuildFeatureCodec.normalizeText(value, GuildFeatureCodec.NOTE_MAX_LENGTH);
+                if (value == null) {
+                    return;
+                }
+                boolean noteSaved;
+                synchronized (guild) {
+                    String previousNote = guild.getNote();
+                    String previousAuthor = guild.getNoteAuthor();
+                    long previousDate = guild.getNoteDate();
+                    guild.updateNote(value, this.player.getName(), System.currentTimeMillis());
+                    noteSaved = ((GuildData) DatabaseManager.get(GuildData.class))
+                            .updateFeatures(guild);
+                    if (!noteSaved) {
+                        guild.updateNote(previousNote, previousAuthor, previousDate);
+                    }
+                }
+                if (!noteSaved) {
+                    guildFeaturePersistenceFailed();
+                    return;
+                }
+                for (Player guildPlayer : guild.getPlayers()) {
+                    if (guildPlayer != null && guildPlayer.isOnline()) {
+                        SocketManager.GAME_SEND_gIG_PACKET(guildPlayer, guild);
+                    }
+                }
+                break;
+            case 'I':
+                if (member.getRank() != 1
+                        && !member.canDo(Constant.G_EDIT_GUILD_INFORMATIONS)) {
+                    SocketManager.GAME_SEND_Im_PACKET(this.player, "1101");
+                    return;
+                }
+                value = GuildFeatureCodec.normalizeText(value,
+                        GuildFeatureCodec.INFORMATIONS_MAX_LENGTH);
+                if (value == null) {
+                    return;
+                }
+                boolean informationsSaved;
+                synchronized (guild) {
+                    String previousInformations = guild.getInformations();
+                    String previousAuthor = guild.getInformationsAuthor();
+                    long previousDate = guild.getInformationsDate();
+                    guild.updateInformations(value, this.player.getName(),
+                            System.currentTimeMillis());
+                    informationsSaved = ((GuildData) DatabaseManager.get(GuildData.class))
+                            .updateFeatures(guild);
+                    if (!informationsSaved) {
+                        guild.updateInformations(previousInformations, previousAuthor,
+                                previousDate);
+                    }
+                }
+                if (!informationsSaved) {
+                    guildFeaturePersistenceFailed();
+                    return;
+                }
+                for (Player guildPlayer : guild.getPlayers()) {
+                    if (guildPlayer != null && guildPlayer.isOnline()) {
+                        SocketManager.GAME_SEND_gII_PACKET(guildPlayer, guild);
+                    }
+                }
+                break;
+            case 'R':
+                // Retro only exposes global rank-name editing to the guild leader.
+                if (member.getRank() != 1) {
+                    SocketManager.GAME_SEND_Im_PACKET(this.player, "1101");
+                    return;
+                }
+                GuildFeatureCodec.RankChanges changes =
+                        GuildFeatureCodec.parseRankChanges(value);
+                if (changes == null) {
+                    return;
+                }
+                boolean ranksSaved;
+                synchronized (guild) {
+                    String previousRankNames = guild.getRankNames();
+                    guild.applyRankChanges(changes);
+                    ranksSaved = ((GuildData) DatabaseManager.get(GuildData.class))
+                            .updateFeatures(guild);
+                    if (!ranksSaved) {
+                        guild.restoreRankNames(previousRankNames);
+                    }
+                }
+                if (!ranksSaved) {
+                    guildFeaturePersistenceFailed();
+                    return;
+                }
+                for (Player guildPlayer : guild.getPlayers()) {
+                    if (guildPlayer != null && guildPlayer.isOnline()) {
+                        SocketManager.GAME_SEND_gRE_PACKET(guildPlayer, guild);
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void guildFeaturePersistenceFailed() {
+        SocketManager.GAME_SEND_MESSAGE(this.player,
+                "La modification de guilde n'a pas pu être enregistrée.", "FF0000");
     }
 
     private void invitationGuild(String packet) {
@@ -5284,11 +5596,30 @@ public class GameClient {
             return; //Si le this.playernnage envoyeur n'a m?me pas de guilde
 
         String[] infos = packet.split("\\|");
+        if (infos.length != 4) {
+            return;
+        }
 
-        int guid = Integer.parseInt(infos[0]);
-        int rank = Integer.parseInt(infos[1]);
-        byte xpGive = Byte.parseByte(infos[2]);
-        int right = Integer.parseInt(infos[3]);
+        final int guid;
+        int rank;
+        byte xpGive;
+        int right;
+        try {
+            guid = Integer.parseInt(infos[0]);
+            rank = Integer.parseInt(infos[1]);
+            xpGive = Byte.parseByte(infos[2]);
+            right = Integer.parseInt(infos[3]);
+        } catch (NumberFormatException ignored) {
+            return;
+        }
+        if (right != -1 && right != 1
+                && (right < 0 || (right & ~Constant.G_ALL_RIGHTS) != 0)) {
+            return;
+        }
+        if (rank != -1 && (rank < GuildFeatureCodec.RANK_MIN_ID
+                || rank > GuildFeatureCodec.RANK_MAX_ID)) {
+            return;
+        }
 
         Player p = World.world.getPlayer(guid); //Cherche le this.playernnage a qui l'on change les droits dans la m?moire
         GuildMember toChange;
@@ -5319,6 +5650,9 @@ public class GameClient {
 
             toChange = p.getGuildMember();
         }
+        if (toChange == null || changer == null) {
+            return;
+        }
 
         //V?rifie ce que le this.playernnage changeur ? le droit de faire
 
@@ -5333,7 +5667,7 @@ public class GameClient {
             {
                 if (rank == 1) //Si il met un autre membre "Meneur"
                 {
-                    changer.setAllRights(2, (byte) -1, 29694, this.player); //Met le meneur "Bras droit" avec tthis les droits
+                    changer.setAllRights(2, (byte) -1, Constant.G_ALL_RIGHTS); //Met le meneur "Bras droit" avec tous les droits
 
                     //D?fini les droits ? mettre au nouveau meneur
                     rank = 1;
@@ -5366,63 +5700,55 @@ public class GameClient {
             if (!changer.canDo(Constant.G_ALLXP) && !changer.equals(toChange)) //S'il n'a pas le droit de changer l'XP des autres et qu'il n'est pas la cible
                 xpGive = -1; //"Reset" L'XP
         }
-        toChange.setAllRights(rank, xpGive, right, this.player);
+        toChange.setAllRights(rank, xpGive, right);
         SocketManager.GAME_SEND_gS_PACKET(this.player, this.player.getGuildMember());
         if (p != null && p.getId() != this.player.getId())
             SocketManager.GAME_SEND_gS_PACKET(p, p.getGuildMember());
     }
 
     private void joinOrLeaveTaxCollector(String packet) {
-        int id = -1;
-        String CollectorID = Integer.toString(Integer.parseInt(packet.substring(1)), 36);
+        if (packet == null || packet.length() < 2 || this.player.getGuild() == null) {
+            return;
+        }
+
+        final int id;
         try {
-            id = Integer.parseInt(CollectorID);
-        } catch (Exception e) {
-            e.printStackTrace();
+            id = Integer.parseInt(packet.substring(1));
+        } catch (NumberFormatException ignored) {
             return;
         }
 
         Collector collector = World.world.getCollector(id);
-        boolean fail = this.player.isDead() == 1 || collector == null || collector.getInFight() <= 0;
-
-        if(collector != null) {
-            switch (packet.charAt(0)) {
-                case 'J'://Rejoindre
-                   /* if(fail = collector.addDefenseFight(this.player)) {
-                        World.world.getGuild(collector.getGuildId()).getPlayers().stream().filter(player -> player != null && player.isOnline()).forEach(player -> {
-                            Collector.parseDefense(player, collector.getGuildId());
-                        });
-                    }
-                    break;*/
-                    if (player.getFight() == null && !player.isAway() && !player.isInPrison()) {
-                        if (collector.getDefenseFight().size() >= World.world.getMap(collector.getMap()).getMaxTeam())
-                            return;//Plus de place
-                        collector.addDefenseFight(player);
-                    }
-                    break;
-
-
-                case 'V'://Leave
-                    /*if(fail = collector.delDefenseFight(this.player)) {
-                        World.world.getGuild(collector.getGuildId()).getPlayers().stream().filter(player -> player != null && player.isOnline()).forEach(player -> {
-                            player.send("gITP-" + collector.getId() + "|" + Integer.toString(player.getId(), 36));
-                        });
-                    }
-                    break;*/
-                    collector.delDefenseFight(player);
-                    break;
-            }
+        if (collector == null || collector.getGuildId() != this.player.getGuild().getId()
+                || collector.getInFight() != 1 || this.player.isDead() == 1) {
+            return;
         }
-        /*if (!fail) {
-            SocketManager.GAME_SEND_BN(this.player);
-        }*/
-        for (Player z : World.world.getGuild(collector.getGuildId()).getPlayers()) {
-            if (z == null)
-                continue;
-            if (z.isOnline()) {
-                SocketManager.GAME_SEND_gITM_PACKET(z, Collector.parseToGuild(collector.getGuildId()));
-                Collector.parseAttaque(z, collector.getGuildId());
-                Collector.parseDefense(z, collector.getGuildId());
+
+        boolean changed = false;
+        switch (packet.charAt(0)) {
+            case 'J'://Rejoindre
+                changed = collector.addDefenseFight(this.player);
+                break;
+            case 'V'://Leave
+                changed = collector.delDefenseFight(this.player);
+                break;
+            default:
+                return;
+        }
+        if (!changed) {
+            return;
+        }
+
+        Guild collectorGuild = World.world.getGuild(collector.getGuildId());
+        if (collectorGuild == null) {
+            return;
+        }
+        for (Player guildPlayer : collectorGuild.getPlayers()) {
+            if (guildPlayer != null && guildPlayer.isOnline()) {
+                SocketManager.GAME_SEND_gITM_PACKET(guildPlayer,
+                        Collector.parseToGuild(collector.getGuildId()));
+                Collector.parseAttaque(guildPlayer, collector.getGuildId());
+                Collector.parseDefense(guildPlayer, collector.getGuildId());
             }
         }
     }

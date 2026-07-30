@@ -32,7 +32,12 @@ public class CollectorData extends FunctionDAO<Collector> {
                             time = Long.parseLong(date);
                         }
 
-                        World.world.addCollector(new Collector(result.getInt("guid"), result.getShort("mapid"), result.getInt("cellid"), result.getByte("orientation"), result.getInt("guild_id"), result.getShort("N1"), result.getShort("N2"), player, time, result.getString("objets"), result.getLong("kamas"), result.getLong("xp")));
+                        World.world.addCollector(new Collector(result.getInt("guid"),
+                                result.getShort("mapid"), result.getInt("cellid"),
+                                result.getByte("orientation"), result.getInt("guild_id"),
+                                result.getShort("N1"), result.getShort("N2"), player,
+                                poseur_id, time, result.getString("objets"),
+                                result.getLong("kamas"), result.getLong("xp")));
                     }
                 }
             });

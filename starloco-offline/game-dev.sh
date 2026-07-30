@@ -166,6 +166,7 @@ deploy_game() {
   "$ROOT/offline-rebuild.sh" game --run-tests --no-restart
 
   if service_is_running; then
+    "$ROOT/offline-migrate.sh" --guild-features-only
     compose up -d --no-build --pull never --force-recreate game
     printf 'Attente du healthcheck du nouveau serveur…\n'
     if wait_for_service_health game 90; then

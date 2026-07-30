@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 
 public class GameServer {
     public static short MAX_PLAYERS = 10000;
+    public static final int MAX_INBOUND_PACKET_LENGTH = 64 * 1024;
 
     private final ConcurrentMap<Integer, Account> waitingClients = new ConcurrentHashMap<>();
     private final IoAcceptor acceptor;
@@ -32,7 +33,10 @@ public class GameServer {
     public GameServer() {
         Config.gameServer = this;
         this.acceptor = new NioSocketAcceptor();
-        this.acceptor.getFilterChain().addLast("codec", new ProtocolCodecFilter(new TextLineCodecFactory(StandardCharsets.UTF_8, LineDelimiter.NUL, new LineDelimiter("\n\0"))));
+        TextLineCodecFactory codecFactory = new TextLineCodecFactory(
+                StandardCharsets.UTF_8, LineDelimiter.NUL, new LineDelimiter("\n\0"));
+        codecFactory.setDecoderMaxLineLength(MAX_INBOUND_PACKET_LENGTH);
+        this.acceptor.getFilterChain().addLast("codec", new ProtocolCodecFilter(codecFactory));
         this.acceptor.getSessionConfig().setIdleTime(IdleStatus.BOTH_IDLE, 60 * 10 /*10 Minutes*/);
         this.acceptor.setHandler(new GameHandler());
 

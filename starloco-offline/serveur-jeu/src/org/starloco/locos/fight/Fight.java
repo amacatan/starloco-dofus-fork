@@ -4,6 +4,7 @@ import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.util.*;
 import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -70,7 +71,7 @@ public class Fight {
     private final Map<Integer, Fighter> team0 = new HashMap<>();
     private final Map<Integer, Fighter> team1 = new HashMap<>();
     private final List<Fighter> deadList = new LinkedList<>();
-    private final Map<Integer, Player> viewer = new HashMap<>();
+    private final Map<Integer, Player> viewer = new ConcurrentHashMap<>();
     private final List<GameCase> start0;
     private final List<GameCase> start1;
     private final Map<Integer, Challenge> allChallenges = new HashMap<>();
@@ -848,6 +849,18 @@ public class Fight {
         return viewer;
     }
 
+    public Collection<Player> getViewers() {
+        return new ArrayList<>(viewer.values());
+    }
+
+    public boolean isViewer(Player player) {
+        return player != null && viewer.get(player.getId()) == player;
+    }
+
+    public boolean removeViewer(Player player) {
+        return player != null && viewer.remove(player.getId(), player);
+    }
+
     List<GameCase> getStart0() {
         return start0;
     }
@@ -1095,9 +1108,9 @@ public class Fight {
         this.launchTime = -1;
         this.startTime = System.currentTimeMillis();
         if (this.collector != null && !this.collectorProtect) {
-            ArrayList<Player> protectors = new ArrayList<>(collector.getDefenseFight().values());
+            Collection<Player> protectors = collector.getDefenseFightSnapshot();
             for (Player player : protectors) {
-                if (player.getFight() == null && !player.isAway()) {
+                if (canJoinCollectorDefense(player)) {
                     player.setOldPosition();
 
                     if (player.getCurMap().getId() != this.getMapOld().getId()) {
@@ -1106,10 +1119,16 @@ public class Fight {
 
                     TimerWaiter.addNext(() -> this.joinCollectorFight(player, collector.getId()), 1000);
                 } else {
-                    SocketManager.GAME_SEND_MESSAGE(player, player.getLang().trans("fight.startfight.collector.error"));
+                    if (player != null && player.isOnline() && player.getGameClient() != null) {
+                        SocketManager.GAME_SEND_MESSAGE(player,
+                                player.getLang().trans("fight.startfight.collector.error"));
+                    }
                     collector.delDefenseFight(player);
                 }
-                player.send("gITP-" + collector.getId() + "|" + Integer.toString(player.getId(), 36));
+                if (player != null && player.isOnline() && player.getGameClient() != null) {
+                    player.send("gITP-" + collector.getId() + "|"
+                            + Integer.toString(player.getId(), 36));
+                }
             }
 
             this.collectorProtect = true;
@@ -1609,9 +1628,8 @@ public class Fight {
             }
         } else {
             SocketManager.GAME_SEND_GV_PACKET(playerCaster);
-            this.getViewer().remove(playerCaster.getId());
-            playerCaster.setFight(null);
-            playerCaster.setAway(false);
+            this.removeViewer(playerCaster);
+            playerCaster.refreshMapAfterFight();
         }
     }
 
@@ -1694,9 +1712,10 @@ public class Fight {
                 }
 
 
-                for (Player player : fight.getViewer().values()) {
+                for (Player player : fight.getViewers()) {
+                    if (!fight.removeViewer(player))
+                        continue;
                     player.refreshMapAfterFight();
-                    player.setSpec(false);
                     SocketManager.send(player, packet);
 
                     if (player.getAccount().isBanned())
@@ -2217,6 +2236,14 @@ public class Fight {
 
     private synchronized void joinCollectorFight(final Player player,
                                                  final int collector) {
+        if (this.collector == null || this.collector.getId() != collector
+                || !canJoinCollectorDefense(player)) {
+            if (this.collector != null && player != null) {
+                this.collector.delDefenseFight(player);
+            }
+            return;
+        }
+
         final GameCase cell = getRandomCell(getStart1());
 
         if (cell == null)
@@ -2240,6 +2267,16 @@ public class Fight {
         SocketManager.GAME_SEND_FIGHT_PLAYER_JOIN(this, 7, f);
         SocketManager.GAME_SEND_MAP_FIGHT_GMS_PACKETS(this, getMap(), player);
         SocketManager.GAME_SEND_GDF_PACKET_TO_FIGHT(player, this.getMap().getCases());
+    }
+
+    private boolean canJoinCollectorDefense(Player player) {
+        return this.collector != null && player != null
+                && this.collector.hasDefender(player.getId())
+                && player.isOnline() && player.getGameClient() != null
+                && player.getFight() == null && !player.isAway()
+                && !player.isInPrison() && player.getExchangeAction() == null
+                && player.isDead() != 1 && !player.isGhost()
+                && player.getCurMap() != null && player.getCurCell() != null;
     }
 
     public void joinPrismFight(final Player player, final int team) {
@@ -2280,41 +2317,75 @@ public class Fight {
         SocketManager.GAME_SEND_GDF_PACKET_TO_FIGHT(player, this.getMap().getCases());
     }
 
-    public void joinAsSpectator(Player p) {
-        final Fighter current = this.getFighterByGameOrder();
-        if (current == null)
-            return;
-
-        if (!isBegin() || p.getFight() != null) {
+    public synchronized boolean joinAsSpectator(Player p) {
+        if (p == null || !p.isOnline() || p.getGameClient() == null
+                || p.getCurMap() == null || p.getCurCell() == null
+                || p.getFight() != null || p.isSpec() || p.isDead() == 1
+                || p.isGhost() || p.isAway() || p.getExchangeAction() != null
+                || !isBegin() || getState() != Constant.FIGHT_STATE_ACTIVE
+                || isFinish() || getMap() == null || getViewer().containsKey(p.getId())) {
             SocketManager.GAME_SEND_Im_PACKET(p, "157");
-            return;
+            return false;
         }
-        if (p.getGroup() == null) {
-            if (!isViewerOk() || getState() != Constant.FIGHT_STATE_ACTIVE) {
-                SocketManager.GAME_SEND_Im_PACKET(p, "157");
-                return;
-            }
+        if (p.getGroup() == null && !isViewerOk()) {
+            SocketManager.GAME_SEND_Im_PACKET(p, "157");
+            return false;
         }
+
+        final Fighter current = this.getFighterByGameOrder();
+        if (current == null) {
+            SocketManager.GAME_SEND_Im_PACKET(p, "157");
+            return false;
+        }
+
         demorph(p);
+        final boolean remoteMap = p.getCurMap().getId() != getMap().getId();
         p.getCurCell().removePlayer(p);
-        SocketManager.GAME_SEND_GJK_PACKET(p, getState(), 0, 0, 1, 0, getType());
-        SocketManager.GAME_SEND_GS_PACKET(p);
         SocketManager.GAME_SEND_ERASE_ON_MAP_TO_MAP(p.getCurMap(), p.getId());
-        SocketManager.GAME_SEND_MAP_FIGHT_GMS_PACKETS(this, getMap(), p);
-        SocketManager.GAME_SEND_GAMETURNSTART_PACKET(p, current.getId(), Constant.TIME_BY_TURN);
-        SocketManager.GAME_SEND_GTL_PACKET(p, this);
 
         getViewer().put(p.getId(), p);
         p.setSpec(true);
         p.setFight(this);
 
+        if (p.getGroup() == null)
+            SocketManager.GAME_SEND_Im_PACKET_TO_FIGHT(this, 7, "036;" + p.getName());
+
+        if (remoteMap) {
+            SocketManager.GAME_SEND_MAPDATA(p.getGameClient(), getMap().getId(),
+                    getMap().getDate(), getMap().getKey());
+        } else {
+            sendSpectatorSnapshot(p);
+        }
+        return true;
+    }
+
+    public synchronized boolean sendSpectatorSnapshot(Player p) {
+        if (p == null || !p.isOnline() || p.getGameClient() == null
+                || p.getFight() != this || !p.isSpec() || !isViewer(p)
+                || !isBegin() || getState() != Constant.FIGHT_STATE_ACTIVE
+                || isFinish() || getMap() == null) {
+            return false;
+        }
+
+        final Fighter current = this.getFighterByGameOrder();
+        SocketManager.GAME_SEND_GJK_PACKET(p, getState(), 0, 0, 1, 0, getType());
+        SocketManager.GAME_SEND_GS_PACKET(p);
+        SocketManager.GAME_SEND_MAP_FIGHT_GMS_PACKETS(this, getMap(), p);
+        if (current != null)
+            SocketManager.GAME_SEND_GAMETURNSTART_PACKET(p, current.getId(), Constant.TIME_BY_TURN);
+        SocketManager.GAME_SEND_GTL_PACKET(p, this);
+
         ArrayList<Fighter> all = new ArrayList<>();
         all.addAll(this.team0.values());
         all.addAll(this.team1.values());
-        all.stream().filter(Fighter::isHidden).forEach(f -> SocketManager.GAME_SEND_GA_PACKET(p, 150, f.getId() + "", f.getId() + ",4"));
-        if (p.getGroup() == null)
-            SocketManager.GAME_SEND_Im_PACKET_TO_FIGHT(this, 7, "036;" + p.getName());
-        if (getType() == Constant.FIGHT_TYPE_PVM && !getAllChallenges().isEmpty() || getType() == Constant.FIGHT_TYPE_DOPEUL && !getAllChallenges().isEmpty()) {
+        all.stream().filter(Objects::nonNull).filter(Fighter::isHidden)
+                .forEach(f -> SocketManager.GAME_SEND_GA_PACKET(p, 150,
+                        f.getId() + "", f.getId() + ",4"));
+        all.stream().filter(Objects::nonNull).forEach(f -> f.sendState(p));
+
+        if ((getType() == Constant.FIGHT_TYPE_PVM
+                || getType() == Constant.FIGHT_TYPE_DOPEUL)
+                && !getAllChallenges().isEmpty()) {
             for (Entry<Integer, Challenge> c : getAllChallenges().entrySet()) {
                 if (c.getValue() == null)
                     continue;
@@ -2323,12 +2394,15 @@ public class Fight {
                     c.getValue().challengeSpecLoose(p);
             }
         }
-        for (Glyph glyph : this.getGlyphs()) {
+        for (Glyph glyph : new ArrayList<>(this.getGlyphs())) {
+            if (glyph == null || glyph.getCaster() == null || glyph.getCell() == null)
+                continue;
             SocketManager.GAME_SEND_GA_PACKET(p, 999, glyph.getCaster().getId() + "",
                     "GDZ+" + glyph.getCell().getId() + ";" + glyph.getSize() + ";" + glyph.getColor());
             SocketManager.GAME_SEND_GA_PACKET(p, 999, glyph.getCaster().getId() + "",
                     "GDC" + glyph.getCell().getId() + ";Haaaaaaaaa3005;");
         }
+        return true;
     }
 
     public void toggleLockTeam(int guid) {
@@ -2348,12 +2422,10 @@ public class Fight {
             this.setViewerOk(!this.isViewerOk());
 
             if (!this.isViewerOk()) {
-                new ArrayList<>(this.getViewer().values()).stream().filter(target -> target.getGroup() == null).forEach(target -> {
+                this.getViewers().stream().filter(target -> target.getGroup() == null).forEach(target -> {
                     SocketManager.GAME_SEND_GV_PACKET(target);
-                    this.getViewer().remove(target.getId());
-                    target.setFight(null);
-                    target.setAway(false);
-                    target.setSpec(false);
+                    this.removeViewer(target);
+                    target.refreshMapAfterFight();
                 });
                 SocketManager.GAME_SEND_FIGHT_CHANGE_OPTION_PACKET_TO_MAP(player.getCurMap(), '+', 'S', player.getId());
                 this.getFighters(3).stream().filter(fighter -> fighter.getPlayer() != null).forEach(fighter -> fighter.getPlayer().send("Im040;" + player.getName()));
@@ -2416,8 +2488,9 @@ public class Fight {
                     && e.getValue().getPlayer().getGameClient() != null)
                 PWs.add(e.getValue().getPlayer().getGameClient());
         }
-        for (Entry<Integer, Player> e : getViewer().entrySet()) {
-            PWs.add(e.getValue().getGameClient());
+        for (Player viewer : getViewers()) {
+            if (viewer != null && viewer.getGameClient() != null)
+                PWs.add(viewer.getGameClient());
         }
         SocketManager.GAME_SEND_FIGHT_SHOW_CASE(PWs, guid, cellID);
     }
@@ -3375,8 +3448,8 @@ public class Fight {
         ArrayList<Fighter> fighters = new ArrayList<>();
 
         if (teams - 4 >= 0) {
-            this.getViewer().values().stream()
-                .filter(Objects::nonNull)
+            this.getViewers().stream()
+                    .filter(Objects::nonNull)
                     .forEach(player -> Fighter.NewPlayer(this, player)); // TODO: Viewers shouldn't need to be fighters
             teams -= 4;
         }
@@ -3393,7 +3466,7 @@ public class Fight {
         ArrayList<Fighter> fighters = new ArrayList<>();
 
         if (team == 0)
-            getViewer().values().stream().map(player -> Fighter.NewPlayer(this, player)).forEach(fighters::add);
+            getViewers().stream().map(player -> Fighter.NewPlayer(this, player)).forEach(fighters::add);
         if (team == 2)
             this.team1.entrySet().stream().map(Entry::getValue).forEach(fighters::add);
         if (team == 1)
@@ -3428,7 +3501,8 @@ public class Fight {
     public synchronized void exchangePlace(Player player, int cell) {
         Fighter fighter = getFighterByPerso(player);
 
-        if (fighter == null || collector != null && this.collectorProtect && collector.getDefenseFight() != null && !collector.getDefenseFight().containsValue(player))
+        if (fighter == null || collector != null && this.collectorProtect
+                && !collector.hasDefender(player.getId()))
             return;
 
         int team = fighter.getTeam();
@@ -4026,9 +4100,10 @@ public class Fight {
                     /** END LOOSER **/
                 }
 
-                for (Player player : this.getViewer().values()) {
+                for (Player player : this.getViewers()) {
+                    if (!this.removeViewer(player))
+                        continue;
                     player.refreshMapAfterFight();
-                    player.setSpec(false);
                     player.send(packet);
 
                     if (player.getAccount().isBanned())

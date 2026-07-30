@@ -13,8 +13,11 @@ import org.starloco.locos.kernel.Constant;
 import org.starloco.locos.object.GameObject;
 import org.starloco.locos.guild.Guild;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class Collector {
 
@@ -31,15 +34,23 @@ public class Collector {
     private long xp = 0;
     private boolean inExchange = false;
     private Player poseur = null;
+    private int poseurId;
     private long date;
     //Les logs
     private java.util.Map<Integer, GameObject> logObjects = new HashMap<>();
     private java.util.Map<Integer, GameObject> objects = new HashMap<>();
     //La d�fense
-    private java.util.Map<Integer, Player> defenserId = new HashMap<>();
+    private final java.util.Map<Integer, Player> defenserId = new LinkedHashMap<>();
 
     public Collector(int id, int map, int cell, byte orientation,
                      int aGuildID, short N1, short N2, Player poseur, long date,
+                     String items, long kamas, long xp) {
+        this(id, map, cell, orientation, aGuildID, N1, N2, poseur,
+                poseur == null ? 0 : poseur.getId(), date, items, kamas, xp);
+    }
+
+    public Collector(int id, int map, int cell, byte orientation,
+                     int aGuildID, short N1, short N2, Player poseur, int poseurId, long date,
                      String items, long kamas, long xp) {
         this.id = id;
         this.map = map;
@@ -49,6 +60,7 @@ public class Collector {
         this.N1 = N1;
         this.N2 = N2;
         this.poseur = poseur;
+        this.poseurId = poseurId;
         this.date = date;
         for (String item : items.split("\\|")) {
             if (item.equals(""))
@@ -219,9 +231,7 @@ public class Collector {
                     packet.append("45000");//TimerInit
                     packet.append(";");
 
-                    int numcase = (World.world.getMap(Collector.getValue().getMap()).getMaxTeam() - 1);
-                    if (numcase > 7)
-                        numcase = 7;
+                    int numcase = defenseCapacity(map.getMaxTeam());
                     packet.append(numcase);//Nombre de place maximum : En fonction de la map moins celle du Collector
                     packet.append(";");
                 } else {
@@ -296,7 +306,7 @@ public class Collector {
         StringBuilder str = new StringBuilder();
         str.append("+").append(collector.getId());
 
-        for (Player player : collector.getDefenseFight().values()) {
+        for (Player player : collector.getDefenseFightSnapshot()) {
             if (player == null)
                 continue;
             str.append("|");
@@ -343,6 +353,13 @@ public class Collector {
 
     public void setPoseur(Player poseur) {
         this.poseur = poseur;
+        if (poseur != null) {
+            this.poseurId = poseur.getId();
+        }
+    }
+
+    public int getPoseurId() {
+        return this.poseurId;
     }
 
     public int getId() {
@@ -377,11 +394,11 @@ public class Collector {
         return this.N2;
     }
 
-    public int getInFight() {
+    public synchronized int getInFight() {
         return this.inFight;
     }
 
-    public void setInFight(byte inFight) {
+    public synchronized void setInFight(byte inFight) {
         this.inFight = inFight;
     }
 
@@ -563,10 +580,16 @@ public class Collector {
     }
 
     public synchronized boolean addDefenseFight(Player player) {
-        if (!(player.getFight() == null && !player.isAway() && !player.isInPrison() && player.getExchangeAction() == null))
+        if (this.inFight != 1 || player == null
+                || !(player.getFight() == null && !player.isAway()
+                && !player.isInPrison() && player.getExchangeAction() == null))
             return false;
+        if (player.getGuild() == null || player.getGuild().getId() != this.guildId
+                || this.defenserId.containsKey(player.getId())) {
+            return false;
+        }
 
-        for (Player p : this.getDefenseFight().values()) {
+        for (Player p : this.defenserId.values()) {
             if (player.getAccount() != null && p != null && p.getAccount() != null) {
                 if (player.getAccount().getCurrentIp().compareTo(p.getAccount().getCurrentIp()) == 0) {
                     SocketManager.GAME_SEND_MESSAGE(player, player.getLang().trans("fight.join.with.sameip"));
@@ -575,15 +598,40 @@ public class Collector {
             }
         }
 
-        if (this.defenserId.size() >= World.world.getMap(getMap()).getMaxTeam()) {
+        GameMap collectorMap = World.world.getMap(getMap());
+        int capacity = collectorMap == null ? 0 : defenseCapacity(collectorMap.getMaxTeam());
+        if (capacity == 0) {
             return false;
-        } else {
-            this.defenserId.put(player.getId(), player);
-            return true;
         }
+
+        while (this.defenserId.size() >= capacity) {
+            if (player.getGuildMember() == null
+                    || !player.getGuildMember().canDo(Constant.G_DEFENDPERCO_PRIORITY)) {
+                return false;
+            }
+
+            Integer defenderToReplace = null;
+            for (Map.Entry<Integer, Player> defender : this.defenserId.entrySet()) {
+                Player current = defender.getValue();
+                if (current == null || current.getGuildMember() == null
+                        || !current.getGuildMember().canDo(Constant.G_DEFENDPERCO_PRIORITY)) {
+                    defenderToReplace = defender.getKey();
+                    break;
+                }
+            }
+            if (defenderToReplace == null) {
+                return false;
+            }
+            this.defenserId.remove(defenderToReplace);
+        }
+        this.defenserId.put(player.getId(), player);
+        return true;
     }
 
     public synchronized boolean delDefenseFight(Player P) {
+        if (this.inFight != 1 || P == null) {
+            return false;
+        }
         if (this.defenserId.containsKey(P.getId())) {
             this.defenserId.remove(P.getId());
             return true;
@@ -591,12 +639,23 @@ public class Collector {
         return false;
     }
 
-    public void clearDefenseFight() {
+    public synchronized void clearDefenseFight() {
         this.defenserId.clear();
     }
 
-    public java.util.Map<Integer, Player> getDefenseFight() {
-        return this.defenserId;
+    public synchronized Collection<Player> getDefenseFightSnapshot() {
+        return new ArrayList<>(this.defenserId.values());
+    }
+
+    public synchronized boolean hasDefender(int playerId) {
+        return this.defenserId.containsKey(playerId);
+    }
+
+    public static int defenseCapacity(int maxTeam) {
+        if (maxTeam <= 1) {
+            return 0;
+        }
+        return Math.min(7, maxTeam - 1);
     }
 
     public Collection<GameObject> getDrops() {

@@ -135,6 +135,9 @@ if [[ "$NO_RESTART" == false ]]; then
     *) services=("$TARGET") ;;
   esac
   if compose ps --services --status running | grep -q .; then
+    if [[ "$TARGET" == game || "$TARGET" == all ]]; then
+      "$ROOT/offline-migrate.sh" --guild-features-only
+    fi
     compose up -d --no-build --pull never --force-recreate "${services[@]}"
     compose ps
   else

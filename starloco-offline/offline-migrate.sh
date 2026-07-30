@@ -7,18 +7,21 @@ MODE="full"
 case "${1:-}" in
   "") ;;
   --social-only) MODE="social" ;;
+  --guild-features-only) MODE="guild-features" ;;
   -h|--help)
     cat <<'HELP'
-Usage : ./offline-migrate.sh [--social-only]
+Usage : ./offline-migrate.sh [--social-only|--guild-features-only]
 
 Sans option, applique les migrations Login et Jeu. Les services applicatifs
 doivent être arrêtés ; utilisez normalement ./offline-start.sh.
 
 --social-only crée ou met à niveau uniquement les tables du fil communautaire.
+--guild-features-only applique uniquement l’extension additive des guildes ;
+elle peut précéder sans interruption le redéploiement du serveur de jeu.
 HELP
     exit 0
     ;;
-  *) die "Usage : $0 [--social-only]" ;;
+  *) die "Usage : $0 [--social-only|--guild-features-only]" ;;
 esac
 
 need_docker
@@ -77,6 +80,10 @@ if [[ "$MODE" == "social" ]]; then
     "$STACK/db-init/08-social-feed.sql"
     "$STACK/db-init/09-admin-console.sql"
   )
+elif [[ "$MODE" == "guild-features" ]]; then
+  login_migrations=(
+    "$STACK/db-init/10-guild-features.sql"
+  )
 else
   login_migrations=(
     "$STACK/db-init/03-login-zaap-index-update.sql"
@@ -85,6 +92,7 @@ else
     "$STACK/db-init/07-account-schema-assertions.sql"
     "$STACK/db-init/08-social-feed.sql"
     "$STACK/db-init/09-admin-console.sql"
+    "$STACK/db-init/10-guild-features.sql"
   )
 fi
 
@@ -95,6 +103,10 @@ done
 
 if [[ "$MODE" == "social" ]]; then
   printf 'Tables du fil communautaire prêtes.\n'
+  exit 0
+fi
+if [[ "$MODE" == "guild-features" ]]; then
+  printf 'Schéma des fonctionnalités de guilde prêt.\n'
   exit 0
 fi
 

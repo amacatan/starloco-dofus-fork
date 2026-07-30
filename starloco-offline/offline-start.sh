@@ -33,6 +33,7 @@ game_sql_paths=()
 for sql_file in "${GAME_DB_INIT_FILES[@]}"; do
   game_sql_paths+=("$STACK/db-init/$sql_file")
 done
+game_sql_paths+=("$STACK/db-init/10-guild-features.sql")
 require_paths "${game_sql_paths[@]}"
 [[ $(stat -c '%s' "$STACK/db-init/04-game.sql") -gt 50000000 ]] ||
   die "04-game.sql paraît tronqué."

@@ -43,11 +43,22 @@ public class GameHandler implements IoHandler {
 
         if (Config.encryption && !packet.startsWith("AT") && !packet.startsWith("Ak")) {
             packet = World.world.getCryptManager().decryptMessage(packet, client.getPreparedKeys());
-            if (packet != null) packet = packet.replace("\n", "");
-            else packet = (String) arg1;
+            if (packet != null) {
+                if (!isGuildTextPacket(unwrapClientPacket(packet))) {
+                    packet = packet.replace("\n", "");
+                }
+            } else {
+                packet = (String) arg1;
+            }
         }
 
-        String[] s = packet.split("\n");
+        // Notes and guild information are multiline text fields in Retro. Keep
+        // their frame intact so that an embedded line cannot be interpreted as
+        // a second game packet.
+        String unwrappedPacket = unwrapClientPacket(packet);
+        String[] s = isGuildTextPacket(unwrappedPacket)
+                ? new String[]{packet}
+                : packet.split("\n");
 
         for(String p : s){
             if (p.isEmpty()) {
@@ -106,6 +117,10 @@ public class GameHandler implements IoHandler {
             return null;
         }
         return wrappedPacket[2];
+    }
+
+    public static boolean isGuildTextPacket(String packet) {
+        return packet != null && (packet.startsWith("gEN") || packet.startsWith("gEI"));
     }
 
     @Override

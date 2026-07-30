@@ -58,6 +58,10 @@ for sql_file in "${GAME_DB_INIT_FILES[@]}"; do
   [[ -s "$source_sql" ]] || die "Correctif SQL du jeu absent : $source_sql"
   cp -- "$source_sql" "$STACK/db-init/$sql_file"
 done
+guild_features_sql="$ROOT/serveur-jeu/db-init/10-guild-features.sql"
+[[ -s "$guild_features_sql" ]] ||
+  die "Migration des fonctions de guilde absente : $guild_features_sql"
+cp -- "$guild_features_sql" "$STACK/db-init/10-guild-features.sql"
 
 {
   printf 'nom\turl\tréférence demandée\tcommit conservé\n'

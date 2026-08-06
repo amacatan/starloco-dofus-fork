@@ -2776,26 +2776,20 @@ public class GameClient {
                         if (kamas == 0)
                             return;
 
-                        if (kamas > 0)//Si On ajthise des kamas au coffre
-                        {
-                            if (this.player.getKamas() < kamas)
-                                kamas = this.player.getKamas();
-                            t.setKamas(t.getKamas() + kamas);//On ajthise les kamas au coffre
-                            this.player.setKamas(this.player.getKamas() - kamas);//On retire les kamas du this.playernnage
+                        synchronized (t) {
+                            if (t.transferKamas(this.player, kamas) <= 0)
+                                return;
+
                             SocketManager.GAME_SEND_STATS_PACKET(this.player);
-                        } else {
-                            kamas = -kamas;//On repasse en positif
-                            if (t.getKamas() < kamas)
-                                kamas = t.getKamas();
-                            t.setKamas(t.getKamas() - kamas);//On retire les kamas de la banque
-                            this.player.setKamas(this.player.getKamas() + kamas);//On ajthise les kamas du this.playernnage
-                            SocketManager.GAME_SEND_STATS_PACKET(this.player);
+                            World.world.getOnlinePlayers().stream()
+                                    .filter(player -> player.getExchangeAction() != null
+                                            && player.getExchangeAction().getType() == ExchangeAction.IN_TRUNK
+                                            && player.getExchangeAction().getValue() == t)
+                                    .forEach(player -> SocketManager.GAME_SEND_EsK_PACKET(
+                                            player, "G" + t.getKamas()));
+                            DatabaseManager.get(TrunkData.class).update(t);
+                            DatabaseManager.get(PlayerData.class).update(this.player);
                         }
-                        World.world.getOnlinePlayers().stream().filter(player -> player.getExchangeAction() != null &&
-                                player.getExchangeAction().getType() == ExchangeAction.IN_TRUNK &&
-                                ((Trunk) this.player.getExchangeAction().getValue()).getId() == ((Trunk) player.getExchangeAction().getValue()).getId())
-                                .forEach(P -> SocketManager.GAME_SEND_EsK_PACKET(P, "G" + t.getKamas()));
-                        DatabaseManager.get(TrunkData.class).update(t);
                         break;
 
                     case 'O'://Objet

@@ -74,17 +74,19 @@ public class TrunkData extends FunctionDAO<Trunk> {
 
     @Override
     public void update(Trunk t) {
-        PreparedStatement p = null;
-        try {
-            p = getPreparedStatement("UPDATE " + getTableName() + " SET `kamas`=?, `object`=? WHERE `id`=?");
-            p.setLong(1, t.getKamas());
-            p.setString(2, t.parseTrunkObjetsToDB());
-            p.setInt(3, t.getId());
-            execute(p);
-        } catch (SQLException e) {
-            super.sendError(e);
-        } finally {
-            close(p);
+        synchronized (t) {
+            PreparedStatement p = null;
+            try {
+                p = getPreparedStatement("UPDATE " + getTableName() + " SET `kamas`=?, `object`=? WHERE `id`=?");
+                p.setLong(1, t.getKamas());
+                p.setString(2, t.parseTrunkObjetsToDB());
+                p.setInt(3, t.getId());
+                execute(p);
+            } catch (SQLException e) {
+                super.sendError(e);
+            } finally {
+                close(p);
+            }
         }
     }
 

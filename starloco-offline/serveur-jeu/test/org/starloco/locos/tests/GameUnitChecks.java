@@ -4,6 +4,7 @@ import org.starloco.locos.database.data.game.DropDataChecks;
 import org.starloco.locos.database.data.game.ExtraMonsterDataChecks;
 import org.starloco.locos.database.data.login.AccountDataChecks;
 import org.starloco.locos.entity.CollectorChecks;
+import org.starloco.locos.entity.map.TrunkChecks;
 import org.starloco.locos.fight.FighterChecks;
 import org.starloco.locos.game.GameClient;
 import org.starloco.locos.game.EquipmentChecks;
@@ -44,6 +45,7 @@ public final class GameUnitChecks {
         DiceRollChecks.run();
         GuildFeatureChecks.run();
         CollectorChecks.run();
+        TrunkChecks.run();
         FighterChecks.run();
         AccountDataChecks.run();
         DropDataChecks.run();

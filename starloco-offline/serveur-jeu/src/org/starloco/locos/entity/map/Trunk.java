@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.stream.Stream;
 
 public class Trunk {
@@ -86,7 +87,7 @@ public class Trunk {
         return World.world.getTrunks().values().stream().filter(trunk -> trunk.getHouseId() == h.getId());
     }
 
-    public void setObjects(String object) {
+    public synchronized void setObjects(String object) {
         for (String item : object.split("\\|")) {
             if (item.equals(""))
                 continue;
@@ -148,12 +149,38 @@ public class Trunk {
         this.ownerId = ownerId;
     }
 
-    public long getKamas() {
+    public synchronized long getKamas() {
         return kamas;
     }
 
-    public void setKamas(long kamas) {
+    public synchronized void setKamas(long kamas) {
         this.kamas = kamas;
+    }
+
+    public synchronized long transferKamas(Player target, long requested) {
+        if (target == null || requested == 0)
+            return 0;
+
+        if (requested > 0) {
+            long available = Math.min(requested, target.getKamas());
+            long capacity = Integer.MAX_VALUE - this.kamas;
+            long transferred = Math.min(available, Math.max(0, capacity));
+            if (transferred <= 0 || !target.addKamas(-transferred))
+                return 0;
+
+            this.kamas += transferred;
+            return transferred;
+        }
+
+        long wanted = requested == Long.MIN_VALUE ? Long.MAX_VALUE : -requested;
+        long transferred = Math.min(wanted, this.kamas);
+        if (transferred <= 0 || target.getKamas() > Long.MAX_VALUE - transferred)
+            return 0;
+
+        if (!target.addKamas(transferred))
+            return 0;
+        this.kamas -= transferred;
+        return transferred;
     }
 
     public Player getPlayer() {
@@ -164,11 +191,11 @@ public class Trunk {
         this.player = player;
     }
 
-    public Map<Integer, GameObject> getObject() {
+    public synchronized Map<Integer, GameObject> getObject() {
         return object;
     }
 
-    public void setObject(Map<Integer, GameObject> object) {
+    public synchronized void setObject(Map<Integer, GameObject> object) {
         this.object = object;
     }
 
@@ -203,7 +230,7 @@ public class Trunk {
         return t.getOwnerId() == P.getAccID();
     }
 
-    public String parseToTrunkPacket() {
+    public synchronized String parseToTrunkPacket() {
         StringBuilder packet = new StringBuilder();
 
         for (GameObject obj : this.object.values())
@@ -213,11 +240,14 @@ public class Trunk {
         return packet.toString();
     }
 
-    public void addInTrunk(int guid, int qua, Player P) {
-        if (qua <= 0)
+    public synchronized void addInTrunk(int guid, int qua, Player P) {
+        if (P == null || qua <= 0)
             return;
-        if (((Trunk) P.getExchangeAction().getValue()).getId() != getId())
+        ExchangeAction<?> exchangeAction = P.getExchangeAction();
+        if (exchangeAction == null || exchangeAction.getType() != ExchangeAction.IN_TRUNK
+                || exchangeAction.getValue() != this) {
             return;
+        }
 
         if (this.object.size() >= 10000) // Le plus grand c'est pour si un admin ajoute des objets via la bdd...
         {
@@ -307,88 +337,82 @@ public class Trunk {
         ((PlayerData) DatabaseManager.get(PlayerData.class)).update(P);
     }
 
-    public void removeFromTrunk(int guid, int qua, Player P) {
-        if (qua <= 0)
+    static final class ObjectWithdrawal {
+        final GameObject withdrawn;
+        final GameObject remaining;
+
+        private ObjectWithdrawal(GameObject withdrawn, GameObject remaining) {
+            this.withdrawn = withdrawn;
+            this.remaining = remaining;
+        }
+    }
+
+    synchronized ObjectWithdrawal withdrawObject(
+            int guid, int requested,
+            BiFunction<GameObject, Integer, GameObject> partialFactory) {
+        if (requested <= 0)
+            return null;
+
+        GameObject source = this.object.get(guid);
+        if (source == null || source.getQuantity() <= 0)
+            return null;
+
+        int withdrawnQuantity = Math.min(requested, source.getQuantity());
+        if (withdrawnQuantity == source.getQuantity()) {
+            this.object.remove(guid);
+            return new ObjectWithdrawal(source, null);
+        }
+
+        if (partialFactory == null)
+            return null;
+        GameObject withdrawn = partialFactory.apply(source, withdrawnQuantity);
+        if (withdrawn == null || withdrawn == source
+                || withdrawn.getGuid() == source.getGuid()
+                || withdrawn.getQuantity() != withdrawnQuantity) {
+            return null;
+        }
+
+        source.setQuantity(source.getQuantity() - withdrawnQuantity);
+        return new ObjectWithdrawal(withdrawn, source);
+    }
+
+    public synchronized void removeFromTrunk(int guid, int qua, Player P) {
+        if (P == null || qua <= 0)
             return;
-        if (((Trunk) P.getExchangeAction().getValue()).getId() != getId())
+        ExchangeAction<?> exchangeAction = P.getExchangeAction();
+        if (exchangeAction == null || exchangeAction.getType() != ExchangeAction.IN_TRUNK
+                || exchangeAction.getValue() != this) {
             return;
-        GameObject TrunkObj = World.world.getGameObject(guid);
-        if (TrunkObj == null)
+        }
+
+        ObjectWithdrawal withdrawal = withdrawObject(
+                guid, qua, (source, quantity) -> source.getClone(quantity, true));
+        if (withdrawal == null)
             return;
-        //Si le joueur n'a pas l'item dans son coffre
 
-        if (this.object.get(guid) == null)
-            return;
+        World.world.addGameObject(withdrawal.withdrawn);
+        boolean addedAsNewStack = P.addItem(withdrawal.withdrawn, true, false);
+        if (!addedAsNewStack)
+            World.world.removeGameObject(withdrawal.withdrawn.getGuid());
 
-        GameObject PersoObj = P.getSimilarItem(TrunkObj);
-        String str = "";
-        int newQua = TrunkObj.getQuantity() - qua;
-
-        if (PersoObj == null)//Si le joueur n'avait aucun item similaire
-        {
-            //S'il ne reste rien dans le coffre
-            if (newQua <= 0) {
-                //On retire l'item du coffre
-
-                this.object.remove(guid);
-                //On l'ajoute au joueur
-                P.getItems().put(guid, TrunkObj);
-
-                //On envoie les packets
-                SocketManager.GAME_SEND_OAKO_PACKET(P, TrunkObj);
-                str = "O-" + guid;
-            } else
-            //S'il reste des objets dans le coffre
-            {
-                //On cr�e une copy de l'item dans le coffre
-                PersoObj = TrunkObj.getClone(qua, true);
-                //On l'ajoute au monde
-                World.world.addGameObject(PersoObj);
-                //On retire X objet du coffre
-                TrunkObj.setQuantity(newQua);
-                //On l'ajoute au joueur
-                P.getItems().put(PersoObj.getGuid(), PersoObj);
-
-                //On envoie les packets
-                SocketManager.GAME_SEND_OAKO_PACKET(P, PersoObj);
-                str = "O+" + TrunkObj.getGuid() + "|" + TrunkObj.getQuantity()
-                        + "|" + TrunkObj.getTemplate().getId() + "|"
-                        + TrunkObj.encodeStats();
-            }
+        String str;
+        if (withdrawal.remaining == null) {
+            str = "O-" + guid;
         } else {
-            //S'il ne reste rien dans le coffre
-            if (newQua <= 0) {
-                //On retire l'item du coffre
-
-                this.object.remove(TrunkObj.getGuid());
-
-                World.world.removeGameObject(TrunkObj.getGuid());
-                //On Modifie la quantit� de l'item du sac du joueur
-                PersoObj.setQuantity(PersoObj.getQuantity()
-                        + TrunkObj.getQuantity());
-                //On envoie les packets
-                SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(P, PersoObj);
-                str = "O-" + guid;
-            } else
-            //S'il reste des objets dans le coffre
-            {
-                //On retire X objet du coffre
-                TrunkObj.setQuantity(newQua);
-                //On ajoute X objets au joueurs
-                PersoObj.setQuantity(PersoObj.getQuantity() + qua);
-                //On envoie les packets
-                SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(P, PersoObj);
-                str = "O+" + TrunkObj.getGuid() + "|" + TrunkObj.getQuantity()
-                        + "|" + TrunkObj.getTemplate().getId() + "|"
-                        + TrunkObj.encodeStats();
-            }
+            str = "O+" + withdrawal.remaining.getGuid() + "|"
+                    + withdrawal.remaining.getQuantity() + "|"
+                    + withdrawal.remaining.getTemplate().getId() + "|"
+                    + withdrawal.remaining.encodeStats();
         }
 
         for (Player perso : P.getCurMap().getPlayers())
-            if (perso.getExchangeAction() != null && perso.getExchangeAction().getType() == ExchangeAction.IN_TRUNK && getId() == ((Trunk) perso.getExchangeAction().getValue()).getId())
+            if (perso.getExchangeAction() != null
+                    && perso.getExchangeAction().getType() == ExchangeAction.IN_TRUNK
+                    && getId() == ((Trunk) perso.getExchangeAction().getValue()).getId())
                 SocketManager.GAME_SEND_EsK_PACKET(perso, str);
 
-        SocketManager.GAME_SEND_Ow_PACKET(P);
+        if (addedAsNewStack)
+            SocketManager.GAME_SEND_Ow_PACKET(P);
         ((TrunkData) DatabaseManager.get(TrunkData.class)).update(this);
         ((PlayerData) DatabaseManager.get(PlayerData.class)).update(P);
     }
@@ -400,7 +424,7 @@ public class Trunk {
         return null;
     }
 
-    public String parseTrunkObjetsToDB() {
+    public synchronized String parseTrunkObjetsToDB() {
         StringBuilder str = new StringBuilder();
         for (Entry<Integer, GameObject> entry : this.object.entrySet()) {
             GameObject obj = entry.getValue();
@@ -409,7 +433,7 @@ public class Trunk {
         return str.toString();
     }
 
-    public void moveTrunkToBank(Account Cbank) {
+    public synchronized void moveTrunkToBank(Account Cbank) {
         for (Entry<Integer, GameObject> obj : this.object.entrySet())
             Cbank.getBank().add(obj.getValue());
         this.object.clear();

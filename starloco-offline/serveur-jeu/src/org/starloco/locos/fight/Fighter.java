@@ -70,6 +70,7 @@ public abstract  class Fighter implements Comparable<Fighter>, Scripted<Object>,
     public static Fighter NewPlayer(Fight f, Player player) {
         Fighter fi = new PlayerFighter(f, player);
         fi.init();
+        fi.setPdv(player.getCurPdv());
         return fi;
     }
 

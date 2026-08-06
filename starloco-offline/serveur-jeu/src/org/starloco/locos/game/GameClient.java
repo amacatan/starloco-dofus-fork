@@ -5,6 +5,7 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 import io.jsonwebtoken.Jwts;
@@ -355,7 +356,6 @@ public class GameClient {
 
     private void createMimibiote(String packet)
     {
-        if(this.player.getFight() != null) return;
         final String[] datas = packet.split("\\|");
         if(datas.length < 3) return;
 
@@ -368,37 +368,112 @@ public class GameClient {
         }catch(NumberFormatException e) {
             return;
         }
+        if(idItemToKeep == idItemToDelete) return;
 
-        final GameObject mimibiote = this.player.getItemTemplate(Constant.ID_TEMPLATE_MIMIBIOTE);
-        if(mimibiote == null) return;
+        synchronized(this.player.getItems()) {
+            if(this.player.getFight() != null) return;
 
-        final GameObject itemToKeep = World.world.getGameObject(idItemToKeep);
-        final GameObject itemToDelete = World.world.getGameObject(idItemToDelete);
+            final GameObject mimibiote = this.player.getItemTemplate(Constant.ID_TEMPLATE_MIMIBIOTE);
+            if(mimibiote == null) return;
 
-        if(itemToKeep == null || itemToDelete == null) return;
-        if(!this.player.hasItemGuid(idItemToKeep) || !this.player.hasItemGuid(idItemToDelete)) return;
-        if(itemToDelete.getPosition() != Constant.ITEM_POS_NO_EQUIPED || itemToKeep.getPosition() != Constant.ITEM_POS_NO_EQUIPED) return;
-        if(itemToKeep.isMimibiote() || itemToDelete.isMimibiote()) return;
-        if(itemToKeep.getTemplate().getLevel() < itemToDelete.getTemplate().getLevel()) return;
-        if(itemToKeep.getTemplate().getType() != itemToDelete.getTemplate().getType()) return;
-        if(!Constant.isTypeForMimibiote(itemToKeep.getTemplate().getType())) return;
+            final GameObject itemToKeep = World.world.getGameObject(idItemToKeep);
+            final GameObject itemToDelete = World.world.getGameObject(idItemToDelete);
 
+            if(itemToKeep == null || itemToDelete == null) return;
+            if(!this.player.hasItemGuid(idItemToKeep) || !this.player.hasItemGuid(idItemToDelete)) return;
+            if(itemToDelete.getPosition() != Constant.ITEM_POS_NO_EQUIPED || itemToKeep.getPosition() != Constant.ITEM_POS_NO_EQUIPED) return;
+            if(itemToKeep.isMimibiote() || itemToDelete.isMimibiote()) return;
+            if(itemToKeep.getTemplate().getLevel() < itemToDelete.getTemplate().getLevel()) return;
+            if(itemToKeep.getTemplate().getType() != itemToDelete.getTemplate().getType()) return;
+            if(!Constant.isTypeForMimibiote(itemToKeep.getTemplate().getType())) return;
 
-        // OK
-        final String guid = Integer.toHexString(itemToDelete.getGuid());
-        final String id = Integer.toHexString(itemToDelete.getTemplate().getId());
-        itemToKeep.addTxtStat(Constant.STATS_MIMIBIOTE, guid+";"+id); // setModification est dedans
-        this.player.removeItem(idItemToDelete, 1, true, false);
-        this.player.removeItem(mimibiote.getGuid(), 1, true, true);
-        SocketManager.GAME_SEND_UPDATE_ITEM(player, itemToKeep);
-        SocketManager.GAME_SEND_Im_PACKET(this.player, "022;" + 1 + "~" + itemToDelete.getTemplate().getId());
-        SocketManager.GAME_SEND_Im_PACKET(this.player, "022;" + 1 + "~" + mimibiote.getTemplate().getId());
+            final GameObject storedApparat = isolateMimibioteApparat(
+                    itemToDelete, () -> itemToDelete.getClone(1, true));
+            if(storedApparat == null) return;
+            if(storedApparat != itemToDelete)
+                World.world.addGameObject(storedApparat);
 
+            itemToKeep.addTxtStat(Constant.STATS_MIMIBIOTE,
+                    encodeMimibioteApparatReference(storedApparat));
+            this.player.removeItem(idItemToDelete, 1, true, false);
+            this.player.removeItem(mimibiote.getGuid(), 1, true, true);
+            SocketManager.GAME_SEND_UPDATE_ITEM(player, itemToKeep);
+            SocketManager.GAME_SEND_Im_PACKET(this.player, "022;" + 1 + "~" + itemToDelete.getTemplate().getId());
+            SocketManager.GAME_SEND_Im_PACKET(this.player, "022;" + 1 + "~" + mimibiote.getTemplate().getId());
+        }
+
+    }
+
+    static final class MimibioteApparatReference {
+        final int guid;
+        final int templateId;
+        final boolean isolated;
+
+        private MimibioteApparatReference(int guid, int templateId, boolean isolated) {
+            this.guid = guid;
+            this.templateId = templateId;
+            this.isolated = isolated;
+        }
+    }
+
+    static String encodeMimibioteApparatReference(GameObject apparat) {
+        // A leading zero keeps the hexadecimal GUID numerically identical while marking
+        // references whose single apparat unit was isolated by the server.
+        return "0" + Integer.toHexString(apparat.getGuid()) + ";"
+                + Integer.toHexString(apparat.getTemplate().getId());
+    }
+
+    static MimibioteApparatReference parseMimibioteApparatReference(String value) {
+        if(value == null) return null;
+        String[] data = value.split(";", -1);
+        if(data.length < 2 || data[0].isEmpty() || data[1].isEmpty()) return null;
+
+        boolean isolated = data[0].length() > 1 && data[0].charAt(0) == '0';
+        try {
+            int guid = Integer.parseInt(data[0], 16);
+            int templateId = Integer.parseInt(data[1], 16);
+            if(guid <= 0 || templateId <= 0) return null;
+            return new MimibioteApparatReference(guid, templateId, isolated);
+        } catch(NumberFormatException e) {
+            return null;
+        }
+    }
+
+    static boolean requiresLegacyApparatClone(MimibioteApparatReference reference,
+                                               GameObject ownedApparat) {
+        return reference != null && !reference.isolated && ownedApparat == null;
+    }
+
+    static GameObject isolateMimibioteApparat(GameObject source,
+                                               Supplier<GameObject> cloneOne) {
+        if(source == null || source.getQuantity() <= 0) return null;
+        if(source.getQuantity() == 1) return source;
+        if(cloneOne == null) return null;
+
+        GameObject isolated = cloneOne.get();
+        if(isolated == null || isolated.getGuid() == source.getGuid()
+                || isolated.getQuantity() != 1) {
+            return null;
+        }
+        return isolated;
+    }
+
+    static GameObject restoreOwnedMimibioteApparat(Map<Integer, GameObject> inventory,
+                                                    GameObject apparat) {
+        if(inventory == null || apparat == null) return null;
+        synchronized(inventory) {
+            GameObject ownedApparat = inventory.get(apparat.getGuid());
+            if(ownedApparat == null) return null;
+            if(ownedApparat.getQuantity() <= 0
+                    || ownedApparat.getQuantity() == Integer.MAX_VALUE) return null;
+
+            ownedApparat.setQuantity(ownedApparat.getQuantity() + 1);
+            return ownedApparat;
+        }
     }
 
     private void dissociateMimibiote(String packet)
     {
-        if(this.player.getFight() != null) return;
         final String[] datas = packet.split("\\|");
         if(datas.length < 2) return;
 
@@ -410,31 +485,82 @@ public class GameClient {
             return;
         }
 
-        final GameObject item = World.world.getGameObject(idItem);
-        if(item == null) return;
-        if(!this.player.hasItemGuid(idItem)) return;
-        if(!item.isMimibiote()) return;
+        synchronized(this.player.getItems()) {
+            if(this.player.getFight() != null) return;
 
-        final GameObject mimibiote = World.world.getObjTemplate(Constant.ID_TEMPLATE_MIMIBIOTE).createNewItem(1, false);
-        final int idApparat = Integer.parseInt(item.getTxtStat().get(Constant.STATS_MIMIBIOTE).split(";")[0], 16);
-        final GameObject apparat = World.world.getGameObject(idApparat);
+            final GameObject item = World.world.getGameObject(idItem);
+            if(item == null || !this.player.hasItemGuid(idItem) || !item.isMimibiote()) return;
 
-        if(apparat == null)
-        {
-            this.player.sendMessage("Merci de contacter un administrateur. L'objet avec comme ID " + idApparat + " a disparu ...");
-            return;
-        }
+            final MimibioteApparatReference reference = parseMimibioteApparatReference(
+                    item.getTxtStat().get(Constant.STATS_MIMIBIOTE));
+            if(reference == null) return;
 
-        if(this.player.addItem(mimibiote, true, false))
+            final GameObject apparat = World.world.getGameObject(reference.guid);
+            if(apparat == null || apparat.getTemplate() == null
+                    || apparat.getTemplate().getId() != reference.templateId) {
+                this.player.sendMessage("Merci de contacter un administrateur. L'objet avec comme ID " + reference.guid + " a disparu ...");
+                return;
+            }
+
+            GameObject ownedApparat = this.player.getItems().get(reference.guid);
+            if(ownedApparat != null && (ownedApparat.getQuantity() <= 0
+                    || ownedApparat.getQuantity() == Integer.MAX_VALUE)) return;
+
+            GameObject returnedApparat = apparat;
+            boolean clonedLegacyApparat = false;
+            if(requiresLegacyApparatClone(reference, ownedApparat)) {
+                returnedApparat = apparat.getClone(1, true);
+                if(returnedApparat == null) return;
+                clonedLegacyApparat = true;
+            }
+
+            final ObjectTemplate mimibioteTemplate = World.world.getObjTemplate(Constant.ID_TEMPLATE_MIMIBIOTE);
+            if(mimibioteTemplate == null) {
+                if(clonedLegacyApparat)
+                    DatabaseManager.get(ObjectData.class).delete(returnedApparat);
+                return;
+            }
+            final GameObject mimibiote = mimibioteTemplate.createNewItem(1, false);
+            if(mimibiote == null) {
+                if(clonedLegacyApparat)
+                    DatabaseManager.get(ObjectData.class).delete(returnedApparat);
+                return;
+            }
+
+            GameObject restoredOwnedApparat = null;
+            if(ownedApparat != null) {
+                restoredOwnedApparat = restoreOwnedMimibioteApparat(
+                        this.player.getItems(), apparat);
+                if(restoredOwnedApparat == null) {
+                    DatabaseManager.get(ObjectData.class).delete(mimibiote);
+                    return;
+                }
+            }
+
             World.world.addGameObject(mimibiote);
-        this.player.addItem(apparat, true, false);
-        item.getTxtStat().remove(Constant.STATS_MIMIBIOTE); // setModification est dedans
-        SocketManager.GAME_SEND_UPDATE_ITEM(player, item);
-        if(item.getPosition() != Constant.ITEM_POS_NO_EQUIPED)
-            SocketManager.GAME_SEND_ON_EQUIP_ITEM(this.player.getCurMap(), this.player);
+            if(ownedApparat == null)
+                World.world.addGameObject(returnedApparat);
 
-        SocketManager.GAME_SEND_Im_PACKET(this.player, "021;" + 1 + "~" + apparat.getTemplate().getId());
-        SocketManager.GAME_SEND_Im_PACKET(this.player, "021;" + 1 + "~" + mimibiote.getTemplate().getId());
+            // Reserve the association before granting either object so the request cannot be replayed.
+            item.getTxtStat().remove(Constant.STATS_MIMIBIOTE);
+
+            if(!this.player.addItem(mimibiote, true, false))
+                World.world.removeGameObject(mimibiote.getGuid());
+
+            if(restoredOwnedApparat != null) {
+                SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(this.player, restoredOwnedApparat);
+                SocketManager.GAME_SEND_Ow_PACKET(this.player);
+            } else if(!this.player.addItem(returnedApparat, true, false)) {
+                World.world.removeGameObject(returnedApparat.getGuid());
+            }
+
+            SocketManager.GAME_SEND_UPDATE_ITEM(player, item);
+            if(item.getPosition() != Constant.ITEM_POS_NO_EQUIPED)
+                SocketManager.GAME_SEND_ON_EQUIP_ITEM(this.player.getCurMap(), this.player);
+
+            SocketManager.GAME_SEND_Im_PACKET(this.player, "021;" + 1 + "~" + reference.templateId);
+            SocketManager.GAME_SEND_Im_PACKET(this.player, "021;" + 1 + "~" + mimibiote.getTemplate().getId());
+        }
     }
 
     private void addCharacter(String packet) {
@@ -1587,6 +1713,28 @@ public class GameClient {
         }
     }
 
+    static final class OfflineMerchantQuote {
+        final int quantity;
+        final long totalPrice;
+
+        private OfflineMerchantQuote(int quantity, long totalPrice) {
+            this.quantity = quantity;
+            this.totalPrice = totalPrice;
+        }
+    }
+
+    static OfflineMerchantQuote quoteOfflineMerchantPurchase(int unitPrice,
+                                                               int requestedQuantity,
+                                                               int availableQuantity) {
+        if (unitPrice <= 0 || requestedQuantity <= 0 || requestedQuantity > 100_000
+                || availableQuantity <= 0) {
+            return null;
+        }
+
+        int quantity = Math.min(requestedQuantity, availableQuantity);
+        return new OfflineMerchantQuote(quantity, (long) unitPrice * quantity);
+    }
+
     private void buy(String packet) {
         String[] infos = packet.substring(2).split("\\|");
 
@@ -1598,51 +1746,72 @@ public class GameClient {
         if (exchangeAction.getType() == ExchangeAction.TRADING_WITH_OFFLINE_PLAYER) {
             Player seller = World.world.getPlayer(exchangeAction.getValue());
             if (seller != null && seller != this.player) {
-                int itemID = 0;
-                int qua = 0;
-                int price = 0;
+                int itemID;
+                int requestedQuantity;
                 try {
                     itemID = Integer.valueOf(infos[0]);
-                    qua = Integer.valueOf(infos[1]);
+                    requestedQuantity = Integer.valueOf(infos[1]);
                 } catch (Exception e) {
                     e.printStackTrace();
                     return;
                 }
 
-                    if (!seller.getStoreItems().containsKey(itemID) || qua <= 0) {
+                synchronized (seller) {
+                    Integer unitPrice = seller.getStoreItems().get(itemID);
+                    if (unitPrice == null) {
                         SocketManager.GAME_SEND_BUY_ERROR_PACKET(this);
                         return;
                     }
-                    price = seller.getStoreItems().get(itemID) * qua;
-                    int price2 = seller.getStoreItems().get(itemID);
                     GameObject itemStore = World.world.getGameObject(itemID);
                     if (itemStore == null)
                         return;
-                    if (price > this.player.getKamas())
-                        return;
-                    if (qua <= 0 || qua > 100000)
-                        return;
-                    if (qua > itemStore.getQuantity())
-                        qua = itemStore.getQuantity();
-                    if (qua == itemStore.getQuantity()) {
-                        seller.getStoreItems().remove(itemStore.getGuid());
-                        this.player.addItem(itemStore, true, false);
-                    } else if (itemStore.getQuantity() > qua) {
-                        seller.getStoreItems().remove(itemStore.getGuid());
-                        itemStore.setQuantity(itemStore.getQuantity() - qua);
-                        seller.addStoreItem(itemStore.getGuid(), price2);
 
-                        GameObject clone = itemStore.getClone(qua, true);
-                        if (this.player.addItem(clone, true, false))
-                            World.world.addGameObject(clone);
-                    } else {
+                    OfflineMerchantQuote quote = quoteOfflineMerchantPurchase(
+                            unitPrice, requestedQuantity, itemStore.getQuantity());
+                    if (quote == null) {
                         SocketManager.GAME_SEND_BUY_ERROR_PACKET(this);
                         return;
                     }
 
-                    //remove kamas
-                    this.player.addKamas(-price);
-                    //add seller kamas
+                    int quantity = quote.quantity;
+                    long price = quote.totalPrice;
+                    if (price > this.player.getKamas()
+                            || seller.getKamas() > Long.MAX_VALUE - price) {
+                        return;
+                    }
+
+                    boolean partialPurchase = quantity < itemStore.getQuantity();
+                    GameObject purchasedItem = itemStore;
+                    if (partialPurchase) {
+                        purchasedItem = itemStore.getClone(quantity, true);
+                        if (purchasedItem == null) {
+                            SocketManager.GAME_SEND_BUY_ERROR_PACKET(this);
+                            return;
+                        }
+                    }
+
+                    if (!this.player.addKamas(-price)) {
+                        if (partialPurchase)
+                            DatabaseManager.get(ObjectData.class).delete(purchasedItem);
+                        return;
+                    }
+
+                    seller.getStoreItems().remove(itemStore.getGuid());
+                    if (partialPurchase) {
+                        itemStore.setQuantity(itemStore.getQuantity() - quantity);
+                        seller.addStoreItem(itemStore.getGuid(), unitPrice);
+                    }
+
+                    boolean addedAsNewStack = this.player.addItem(purchasedItem, true, false);
+                    if (partialPurchase) {
+                        if (addedAsNewStack)
+                            World.world.addGameObject(purchasedItem);
+                        else
+                            DatabaseManager.get(ObjectData.class).delete(purchasedItem);
+                    } else if (!addedAsNewStack) {
+                        World.world.removeGameObject(purchasedItem.getGuid());
+                    }
+
                     seller.addKamas(price);
                     DatabaseManager.get(PlayerData.class).update(seller);
                     //send packets
@@ -1657,6 +1826,7 @@ public class GameClient {
                             leaveExchange(this.player);
                         }
                     }
+                }
             }
         } else {
 
@@ -6094,6 +6264,16 @@ public class GameClient {
         SocketManager.GAME_SEND_STATS_PACKET(this.player);
     }
 
+    static boolean hasSameTemplateEquippedOutsideTarget(Collection<GameObject> items,
+                                                         GameObject movingItem,
+                                                         int targetPosition) {
+        return items.stream().anyMatch(item -> item.getGuid() != movingItem.getGuid()
+                && item.getTemplate() != null
+                && item.getTemplate().getId() == movingItem.getTemplate().getId()
+                && item.getPosition() != Constant.ITEM_POS_NO_EQUIPED
+                && item.getPosition() != targetPosition);
+    }
+
     public synchronized void movementObject(String packet) {
         String[] infos = packet.substring(2).split("" + (char) 0x0A)[0].split("\\|");
         try {
@@ -6261,8 +6441,13 @@ public class GameClient {
                     return;
                 }
 
-                //On ne peut ?quiper 2 items de panoplies identiques, ou 2 Dofus identiques
-                if (position != Constant.ITEM_POS_NO_EQUIPED && (object.getTemplate().getPanoId() != -1 || object.getTemplate().getType() == Constant.ITEM_TYPE_DOFUS) && this.player.hasEquiped(object.getTemplate().getId()))
+                // On ne peut pas equiper deux objets de panoplie identiques, ni deux Dofus identiques.
+                // L'objet deja present sur la case cible ne compte pas : il va etre remplace juste apres.
+                if (position != Constant.ITEM_POS_NO_EQUIPED
+                        && (object.getTemplate().getPanoId() != -1
+                        || object.getTemplate().getType() == Constant.ITEM_TYPE_DOFUS)
+                        && hasSameTemplateEquippedOutsideTarget(this.player.getItems().values(),
+                        object, position))
                     return;
 
                 // FIN DES VERIFS
@@ -6350,8 +6535,10 @@ public class GameClient {
                         SocketManager.GAME_SEND_OS_PACKET(this.player, exObj.getTemplate().getPanoId());
                 } else {
                     GameObject obj2;
-                    //On a un objet similaire
-                    if ((obj2 = this.player.getSimilarItem(object)) != null) {
+                    // Les piles similaires ne fusionnent que dans l'inventaire. Lors d'un
+                    // equipement, l'objet deplace doit rester disponible pour occuper la case.
+                    if (position == Constant.ITEM_POS_NO_EQUIPED
+                            && (obj2 = this.player.getSimilarItem(object)) != null) {
                         if (quantity > object.getQuantity())
                             quantity = object.getQuantity();
 

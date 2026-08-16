@@ -6653,8 +6653,18 @@ public class GameClient {
                     return;
                 if (p.getEpo() == object.getTemplate().getId()) {
                     PetEntry pet = World.world.getPetsEntry(pets.getGuid());
-                    if (pet != null && p.getEpo() == object.getTemplate().getId())
-                        pet.giveEpo(this.player);
+                    if (pet != null && pet.giveEpo(this.player)) {
+                        if (object.getQuantity() > 1) {
+                            object.setQuantity(object.getQuantity() - 1);
+                            DatabaseManager.get(ObjectData.class).update(object);
+                            SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(this.player, object);
+                        } else {
+                            this.player.removeItem(object.getGuid());
+                            World.world.removeGameObject(object.getGuid());
+                            SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(this.player, object.getGuid());
+                        }
+                        SocketManager.GAME_SEND_Ow_PACKET(this.player);
+                    }
                     return;
                 }
                 if (object.getTemplate().getId() != 2239 && !p.canEat(object.getTemplate().getId(), object.getTemplate().getType(), -1)) {

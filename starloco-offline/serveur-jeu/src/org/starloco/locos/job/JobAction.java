@@ -3334,7 +3334,7 @@ public class JobAction {
                     EtatJet = 100;
                 }
 
-                if(PWGRune <= 3 && (actualJet / maxJet) * 100 > 65 && PWRRune == 1)
+                if(PWGRune <= 3 && isMagingJetAbovePercent(actualJet, maxJet, 65) && PWRRune == 1)
                     EtatJet = 150;
 
                 EtatObjet = (float) Math.ceil(15 + PWRactual + PWGRune * 3);
@@ -3372,11 +3372,11 @@ public class JobAction {
                 successLevel = 5;
                 EtatJet = 100;
 
-                if(PWGRune <= 3 && (actualJet / maxJet) * 100 > 65 && PWRRune == 1)
+                if(PWGRune <= 3 && isMagingJetAbovePercent(actualJet, maxJet, 65) && PWRRune == 1)
                     EtatJet = 150;
-                if(PWGRune <= 3 && (actualJet / maxJet) * 100 > 80 && PWRRune == 1)
+                if(PWGRune <= 3 && isMagingJetAbovePercent(actualJet, maxJet, 80) && PWRRune == 1)
                     EtatJet = 300;
-                if(PWGRune <= 3 && (actualJet / maxJet) * 100 > 85 && PWRRune == 3)
+                if(PWGRune <= 3 && isMagingJetAbovePercent(actualJet, maxJet, 85) && PWRRune == 3)
                     EtatJet = 200;
 
                 if (EtatJet >= 80)
@@ -3409,11 +3409,11 @@ public class JobAction {
                 }
             } else {
                 // CAS NORMAL
-                if(PWGRune <= 3 && (actualJet / maxJet) * 100 > 65 && PWRRune == 1)
+                if(PWGRune <= 3 && isMagingJetAbovePercent(actualJet, maxJet, 65) && PWRRune == 1)
                     EtatJet = 150;
-                if(PWGRune <= 3 && (actualJet / maxJet) * 100 > 80 && PWRRune == 1)
+                if(PWGRune <= 3 && isMagingJetAbovePercent(actualJet, maxJet, 80) && PWRRune == 1)
                     EtatJet = 300;
-                if(PWGRune <= 3 && (actualJet / maxJet) * 100 > 85 && PWRRune == 3)
+                if(PWGRune <= 3 && isMagingJetAbovePercent(actualJet, maxJet, 85) && PWRRune == 3)
                     EtatJet = 200;
 
 
@@ -3703,6 +3703,13 @@ public class JobAction {
 
     static boolean isMagingLevelSufficient(int jobLevel, int itemLevel) {
         return jobLevel >= Math.max(0, itemLevel / 2);
+    }
+
+    static boolean isMagingJetAbovePercent(int actualJet, int maxJet,
+                                           int threshold) {
+        if (maxJet <= 0)
+            return false;
+        return (long) actualJet * 100 > (long) maxJet * threshold;
     }
 
     private void rejectMagingAttempt(boolean isRepeat) {

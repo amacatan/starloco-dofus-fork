@@ -2121,12 +2121,13 @@ public class Fight {
                 SocketManager.GAME_SEND_GA903_ERROR_PACKET(perso.getGameClient(), 'f', guid);
                 return;
             }
-            if (this.team0.size() >= 8 || this.start0.size() == this.team0.size())
+            OptionalLong joinCountdown = getJoinCountdown(0, timeRestant);
+            if (!joinCountdown.isPresent())
                 return;
             if (getType() == Constant.FIGHT_TYPE_CHALLENGE)
-                SocketManager.GAME_SEND_GJK_PACKET(perso, 2, 1, 1, 0, timeRestant, getType());
+                SocketManager.GAME_SEND_GJK_PACKET(perso, 2, 1, 1, 0, joinCountdown.getAsLong(), getType());
             else
-                SocketManager.GAME_SEND_GJK_PACKET(perso, 2, 0, 1, 0, timeRestant, getType());
+                SocketManager.GAME_SEND_GJK_PACKET(perso, 2, 0, 1, 0, joinCountdown.getAsLong(), getType());
 
             SocketManager.GAME_SEND_FIGHT_PLACES_PACKET(perso.getGameClient(), getMap().getPlaces(), getSt1());
             SocketManager.GAME_SEND_GA_PACKET_TO_FIGHT(this, 3, 950, perso.getId() + "", perso.getId() + "," + Constant.ETAT_PORTE + ",0");
@@ -2179,12 +2180,13 @@ public class Fight {
                 SocketManager.GAME_SEND_GA903_ERROR_PACKET(perso.getGameClient(), 'f', guid);
                 return;
             }
-            if (this.team1.size() >= 8 || this.start1.size() == this.team0.size())
+            OptionalLong joinCountdown = getJoinCountdown(1, timeRestant);
+            if (!joinCountdown.isPresent())
                 return;
             if (getType() == Constant.FIGHT_TYPE_CHALLENGE)
-                SocketManager.GAME_SEND_GJK_PACKET(perso, 2, 1, 1, 0, 0, getType());
+                SocketManager.GAME_SEND_GJK_PACKET(perso, 2, 1, 1, 0, joinCountdown.getAsLong(), getType());
             else
-                SocketManager.GAME_SEND_GJK_PACKET(perso, 2, 0, 1, 0, 0, getType());
+                SocketManager.GAME_SEND_GJK_PACKET(perso, 2, 0, 1, 0, joinCountdown.getAsLong(), getType());
 
             SocketManager.GAME_SEND_FIGHT_PLACES_PACKET(perso.getGameClient(), getMap().getPlaces(), getSt2());
             SocketManager.GAME_SEND_GA_PACKET_TO_FIGHT(this, 3, 950, perso.getId() + "", perso.getId() + "," + Constant.ETAT_PORTE + ",0");
@@ -2224,6 +2226,20 @@ public class Fight {
         }
         if (getPrism() != null)
             World.world.getOnlinePlayers().stream().filter(Objects::nonNull).filter(z -> z.getAlignment() == getPrism().getAlignment()).forEach(z -> Prism.parseAttack(perso));
+    }
+
+    private OptionalLong getJoinCountdown(int team, long remainingTime) {
+        return getJoinCountdown(team, this.team0.size(), this.start0.size(),
+                this.team1.size(), this.start1.size(), remainingTime);
+    }
+
+    static OptionalLong getJoinCountdown(int team, int team0Size, int start0Size,
+                                         int team1Size, int start1Size, long remainingTime) {
+        int teamSize = team == 0 ? team0Size : team1Size;
+        int startSize = team == 0 ? start0Size : start1Size;
+        return teamSize >= 8 || teamSize >= startSize
+                ? OptionalLong.empty()
+                : OptionalLong.of(remainingTime);
     }
 
     private synchronized void joinCollectorFight(final Player player,

@@ -1174,12 +1174,16 @@ public class Player implements Scripted<SPlayer>, Actor {
     }
 
     public void setFight(Fight fight) {
-        if(this.setSitted(false) || fight != null) {
+        this.setSitted(false);
+        if (this.fight != fight)
+            this.regenTime = System.currentTimeMillis();
+
+        if (fight != null) {
             regenRate = 0;
             this.send("ILF0");
-        } else if(fight == null) {
-            regenRate = 1000;
-            this.send("ILS1000");
+        } else {
+            regenRate = 2000;
+            this.send("ILS2000");
         }
         this.fight = fight;
     }
@@ -3386,20 +3390,15 @@ public class Player implements Scripted<SPlayer>, Actor {
         return getAccount().getBank().size();
     }
 
-    public void openBank() {
-        if(this.getExchangeAction().getType() == ExchangeAction.TALKING_WITH) {
-            NpcDialogActionData data = (NpcDialogActionData) this.getExchangeAction().getValue();
-
-            if(!data.getNpcTemplate().isBankClerk()) {
-                // Opening bank while talking to an NPC is not valid, except when the NPc is a bank clerk
-                return;
-            }
-            // We were talking to a clerk, close dialog
-            this.exchangeAction = null;
-            SocketManager.GAME_SEND_END_DIALOG_PACKET(this.getGameClient());
-        }
-        if(this.getExchangeAction() != null) {
+    public synchronized void openBank() {
+        ExchangeAction<?> currentAction = this.getExchangeAction();
+        if (!canOpenBankFrom(currentAction))
             return;
+
+        if (currentAction != null) {
+            // We were talking to a clerk, close the dialog before opening the bank.
+            this.setExchangeAction(null);
+            SocketManager.GAME_SEND_END_DIALOG_PACKET(this.getGameClient());
         }
         if (this.getDeshonor() >= 1) {
             SocketManager.GAME_SEND_Im_PACKET(this, "183");
@@ -3442,6 +3441,17 @@ public class Player implements Scripted<SPlayer>, Actor {
         this.setAway(true);
         this.setExchangeAction(new ExchangeAction<>(ExchangeAction.IN_BANK, 0));
 
+    }
+
+    static boolean canOpenBankFrom(ExchangeAction<?> action) {
+        if (action == null)
+            return true;
+        if (action.getType() != ExchangeAction.TALKING_WITH
+                || !(action.getValue() instanceof NpcDialogActionData))
+            return false;
+
+        NpcDialogActionData data = (NpcDialogActionData) action.getValue();
+        return data.getNpcTemplate() != null && data.getNpcTemplate().isBankClerk();
     }
 
     public String getStringVar(String str) {
@@ -4096,6 +4106,8 @@ public class Player implements Scripted<SPlayer>, Actor {
         party = null;
         _inviting = 0;
         sitted = false;
+        regenRate = 2000;
+        regenTime = System.currentTimeMillis();
         _onMount = false;
         _isAbsent = false;
         _isInvisible = false;

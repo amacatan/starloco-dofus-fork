@@ -12,6 +12,7 @@ import org.starloco.locos.database.DatabaseManager;
 import org.starloco.locos.database.data.login.PlayerData;
 import org.starloco.locos.entity.monster.MonsterGroup;
 import org.starloco.locos.entity.npc.Npc;
+import org.starloco.locos.entity.pet.Pet;
 import org.starloco.locos.entity.pet.PetEntry;
 import org.starloco.locos.game.GameClient;
 import org.starloco.locos.game.GameServer;
@@ -1422,8 +1423,9 @@ public class Action {
                 PetEntry MyPets = World.world.getPetsEntry(pets.getGuid());
                 if (MyPets == null)
                     return true;
-                if (EPO.getTemplate().getConditions().contains(pets.getTemplate().getId()
-                        + ""))
+                Pet petDefinition = World.world.getPets(pets.getTemplate().getId());
+                if (petDefinition != null
+                        && petDefinition.getEpo() == EPO.getTemplate().getId())
                     MyPets.giveEpo(player);
                 break;
 

@@ -235,6 +235,53 @@ game_migration_is_final() {
     09-update_game_10.03.2024.sql)
       [[ "$(game_scalar "SELECT IF(COALESCE((SELECT conditions FROM challenge WHERE id = 44), -1) = 17, 1, 0);")" == "1" ]]
       ;;
+    10-update_game_pet_epo.sql)
+      [[ "$(game_scalar "
+        SELECT IF(
+          (
+            NOT EXISTS (SELECT 1 FROM pets WHERE TemplateID = 10802)
+            OR (
+              EXISTS (SELECT 1 FROM pets WHERE TemplateID = 10802 AND Epo = 10809)
+              AND EXISTS (SELECT 1 FROM item_template WHERE id = 10809 AND type = 116 AND conditions = 'PO=10802')
+              AND EXISTS (SELECT 1 FROM objectsactions WHERE template = 10809 AND type = '10')
+            )
+          )
+          AND (
+            NOT EXISTS (SELECT 1 FROM pets WHERE TemplateID = 10865)
+            OR (
+              EXISTS (SELECT 1 FROM pets WHERE TemplateID = 10865 AND Epo = 10885)
+              AND EXISTS (SELECT 1 FROM item_template WHERE id = 10885 AND type = 116 AND conditions = 'PO=10865')
+              AND EXISTS (SELECT 1 FROM objectsactions WHERE template = 10885 AND type = '10')
+            )
+          )
+          AND (
+            NOT EXISTS (SELECT 1 FROM pets WHERE TemplateID = 10866)
+            OR (
+              EXISTS (SELECT 1 FROM pets WHERE TemplateID = 10866 AND Epo = 10886)
+              AND EXISTS (SELECT 1 FROM item_template WHERE id = 10886 AND type = 116 AND conditions = 'PO=10866')
+              AND EXISTS (SELECT 1 FROM objectsactions WHERE template = 10886 AND type = '10')
+            )
+          )
+          AND (
+            NOT EXISTS (SELECT 1 FROM item_template WHERE id = 10750)
+            OR (
+              EXISTS (SELECT 1 FROM item_template WHERE id = 10750 AND type = 116 AND conditions = 'PO=7714')
+              AND EXISTS (SELECT 1 FROM pets WHERE TemplateID = 7714 AND Epo = 10750)
+              AND EXISTS (SELECT 1 FROM objectsactions WHERE template = 10750 AND type = '10')
+            )
+          )
+          AND (
+            NOT EXISTS (SELECT 1 FROM item_template WHERE id = 10763)
+            OR (
+              EXISTS (SELECT 1 FROM item_template WHERE id = 10763 AND type = 116 AND conditions = 'PO=7705')
+              AND EXISTS (SELECT 1 FROM pets WHERE TemplateID = 7705 AND Epo = 10763)
+              AND EXISTS (SELECT 1 FROM objectsactions WHERE template = 10763 AND type = '10')
+            )
+          ),
+          1, 0
+        );
+      ")" == "1" ]]
+      ;;
     *)
       die "Correctif jeu inconnu : $migration"
       ;;

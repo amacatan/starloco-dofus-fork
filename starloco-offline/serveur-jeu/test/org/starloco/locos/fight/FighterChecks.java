@@ -5,6 +5,7 @@ import org.starloco.locos.client.other.Stalk;
 import sun.misc.Unsafe;
 
 import java.lang.reflect.Field;
+import java.util.OptionalLong;
 
 public final class FighterChecks {
 
@@ -14,6 +15,26 @@ public final class FighterChecks {
     public static void run() throws ReflectiveOperationException {
         playerFightersKeepTheirCurrentLife();
         aggressionTrackingChecksHandleMissingContracts();
+        teamOneJoinUsesItsOwnPlacementCellsAndRemainingTime();
+    }
+
+    private static void teamOneJoinUsesItsOwnPlacementCellsAndRemainingTime() {
+        long remainingTime = 12_345L;
+        OptionalLong teamOneCountdown = Fight.getJoinCountdown(
+                1,
+                2, 3,
+                1, 2,
+                remainingTime);
+
+        check(teamOneCountdown.isPresent(),
+                "Team one must compare its placement cells with its own fighter count");
+        check(teamOneCountdown.getAsLong() == remainingTime,
+                "Team one must receive the fight's remaining placement countdown");
+
+        check(!Fight.getJoinCountdown(1, 1, 3, 2, 2, remainingTime).isPresent(),
+                "Team one must reject a join when all of its placement cells are occupied");
+        check(!Fight.getJoinCountdown(1, 1, 3, 3, 2, remainingTime).isPresent(),
+                "Team one must reject a join when fighters outnumber its placement cells");
     }
 
     private static void aggressionTrackingChecksHandleMissingContracts()

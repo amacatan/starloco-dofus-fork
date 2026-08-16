@@ -454,7 +454,8 @@ public class GameObject {
             } else if (entry.getKey() == Constant.STATS_PETS_PDV
                     || entry.getKey() == Constant.STATS_PETS_POIDS
                     || entry.getKey() == Constant.STATS_PETS_DATE
-                    || entry.getKey() == Constant.STATS_PETS_REPAS) {
+                    || entry.getKey() == Constant.STATS_PETS_REPAS
+                    || entry.getKey() == Constant.STATS_PETS_EPO) {
                 PetEntry p = World.world.getPetsEntry(this.getGuid());
                 if (p == null) {
                     if (entry.getKey() == Constant.STATS_PETS_PDV)
@@ -465,6 +466,8 @@ public class GameObject {
                         stats.append(Integer.toHexString(entry.getKey())).append("#").append("##");
                     if (entry.getKey() == Constant.STATS_PETS_REPAS)
                         stats.append(Integer.toHexString(entry.getKey())).append("#").append("##");
+                    if (entry.getKey() == Constant.STATS_PETS_EPO)
+                        stats.append(Integer.toHexString(entry.getKey())).append("#").append(entry.getValue()).append("##").append(entry.getValue());
                 } else {
                     if (entry.getKey() == Constant.STATS_PETS_PDV)
                         stats.append(Integer.toHexString(entry.getKey())).append("#").append(Integer.toHexString(p.getPdv())).append("##").append(Integer.toHexString(p.getPdv()));
@@ -474,9 +477,8 @@ public class GameObject {
                         stats.append(Integer.toHexString(entry.getKey())).append(p.parseLastEatDate());
                     if (entry.getKey() == Constant.STATS_PETS_REPAS)
                         stats.append(Integer.toHexString(entry.getKey())).append("#").append(entry.getValue()).append("##").append(entry.getValue());
-                    if (p.getIsEupeoh()
-                            && entry.getKey() == Constant.STATS_PETS_EPO)
-                        stats.append(Integer.toHexString(entry.getKey())).append("#").append(Integer.toHexString(p.getIsEupeoh() ? 1 : 0)).append("##").append(Integer.toHexString(p.getIsEupeoh() ? 1 : 0));
+                    if (entry.getKey() == Constant.STATS_PETS_EPO)
+                        stats.append(Integer.toHexString(entry.getKey())).append("#").append(entry.getValue()).append("##").append(entry.getValue());
                 }
             } else if (entry.getKey() == Constant.STATS_RESIST
                     && getTemplate().getType() == 93) {
@@ -493,7 +495,8 @@ public class GameObject {
             if (!isFirst)
                 stats.append(",");
 
-            if (this.getTemplate().getType() == 18)
+            if (this.getTemplate().getType() == Constant.ITEM_TYPE_FAMILIER
+                    || this.getTemplate().getType() == Constant.ITEM_TYPE_CERTIFICAT_CHANIL)
                 stats.append(Integer.toHexString(Constant.STATS_PETS_SOUL)).append("#").append(Integer.toHexString(entry.getKey())).append("#").append("0").append("#").append(Integer.toHexString(entry.getValue()));
             if (entry.getKey() == Constant.STATS_NIVEAU)
                 stats.append(Integer.toHexString(Constant.STATS_NIVEAU)).append("#").append(Integer.toHexString(entry.getKey())).append("#").append("0").append("#").append(Integer.toHexString(entry.getValue()));
@@ -573,6 +576,8 @@ public class GameObject {
                     stats.append(Integer.toHexString(entry.getKey())).append("#").append(entry.getValue()).append("#0#").append(entry.getValue());
                 if (entry.getKey() == Constant.STATS_PETS_POIDS)
                     stats.append(Integer.toHexString(entry.getKey())).append("#").append(entry.getValue()).append("#").append(entry.getValue()).append("#").append(entry.getValue());
+                if (entry.getKey() == Constant.STATS_PETS_EPO || entry.getKey() == Constant.STATS_PETS_REPAS)
+                    stats.append(Integer.toHexString(entry.getKey())).append("#").append(entry.getValue()).append("#0#").append(entry.getValue());
                 if (entry.getKey() == Constant.STATS_PETS_DATE) {
                     if (entry.getValue().contains("#"))
                         stats.append(Integer.toHexString(entry.getKey())).append(entry.getValue());
@@ -596,7 +601,9 @@ public class GameObject {
                 stats.append(Integer.toHexString(entry.getKey())).append("#0#0#").append(entry.getValue());
             } else if (entry.getKey() == Constant.STATS_PETS_PDV
                     || entry.getKey() == Constant.STATS_PETS_POIDS
-                    || entry.getKey() == Constant.STATS_PETS_DATE) {
+                    || entry.getKey() == Constant.STATS_PETS_DATE
+                    || entry.getKey() == Constant.STATS_PETS_REPAS
+                    || entry.getKey() == Constant.STATS_PETS_EPO) {
                 PetEntry p = World.world.getPetsEntry(this.getGuid());
                 if (p == null) {
                     if (entry.getKey() == Constant.STATS_PETS_PDV)
@@ -605,6 +612,8 @@ public class GameObject {
                         stats.append(Integer.toHexString(entry.getKey())).append("#").append("0").append("#0#0");
                     if (entry.getKey() == Constant.STATS_PETS_DATE)
                         stats.append(Integer.toHexString(entry.getKey())).append("#").append("0").append("#0#0");
+                    if (entry.getKey() == Constant.STATS_PETS_REPAS || entry.getKey() == Constant.STATS_PETS_EPO)
+                        stats.append(Integer.toHexString(entry.getKey())).append("#").append(entry.getValue()).append("#0#").append(entry.getValue());
                 } else {
                     if (entry.getKey() == Constant.STATS_PETS_PDV)
                         stats.append(Integer.toHexString(entry.getKey())).append("#").append(Integer.toHexString(p.getPdv())).append("#0#").append(Integer.toHexString(p.getPdv()));
@@ -612,9 +621,8 @@ public class GameObject {
                         stats.append(Integer.toHexString(entry.getKey())).append("#").append(Integer.toString(p.parseCorpulence())).append("#").append(p.getCorpulence() > 0 ? p.parseCorpulence() : 0).append("#").append(Integer.toString(p.parseCorpulence()));
                     if (entry.getKey() == Constant.STATS_PETS_DATE)
                         stats.append(Integer.toHexString(entry.getKey())).append(p.parseLastEatDate());
-                    if (p.getIsEupeoh()
-                            && entry.getKey() == Constant.STATS_PETS_EPO)
-                        stats.append(Integer.toHexString(entry.getKey())).append("#").append(Integer.toHexString(p.getIsEupeoh() ? 1 : 0)).append("#0#").append(Integer.toHexString(p.getIsEupeoh() ? 1 : 0));
+                    if (entry.getKey() == Constant.STATS_PETS_REPAS || entry.getKey() == Constant.STATS_PETS_EPO)
+                        stats.append(Integer.toHexString(entry.getKey())).append("#").append(entry.getValue()).append("#0#").append(entry.getValue());
                 }
             } else if(entry.getKey() == Constant.STATS_MIMIBIOTE) {
                 final String[] data = entry.getValue().split(";");

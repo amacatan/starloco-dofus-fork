@@ -15,6 +15,7 @@ GAME_DB_INIT_FILES=(
   "07-update_game_24.04.23.sql"
   "08-update_game_08.05.23.sql"
   "09-update_game_10.03.2024.sql"
+  "10-update_game_pet_epo.sql"
 )
 
 

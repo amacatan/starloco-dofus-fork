@@ -34,6 +34,8 @@ public final class CrusherChecks {
     private static final int PET_TEMPLATE = 996_104;
     private static final int DOFUS_TEMPLATE = 996_105;
     private static final int ACTION_RESOURCE_TEMPLATE = 996_106;
+    private static final int QUEST_TEMPLATE = 996_107;
+    private static final int LIVING_OBJECT_TEMPLATE = 996_108;
     private static final int FRAGMENT_TEMPLATE = 8378;
 
     private CrusherChecks() {
@@ -47,6 +49,8 @@ public final class CrusherChecks {
         installTemplate(DOFUS_TEMPLATE, Constant.ITEM_TYPE_DOFUS);
         installTemplate(ACTION_RESOURCE_TEMPLATE, Constant.ITEM_TYPE_RESSOURCE,
                 "4;1;1;50;50;0;0");
+        installTemplate(QUEST_TEMPLATE, Constant.ITEM_TYPE_QUETES);
+        installTemplate(LIVING_OBJECT_TEMPLATE, Constant.ITEM_TYPE_OBJET_VIVANT);
         installTemplate(FRAGMENT_TEMPLATE, Constant.ITEM_TYPE_RESSOURCE);
 
         onlyInventoryEquipmentCanEnterTheCrusher();
@@ -85,6 +89,10 @@ public final class CrusherChecks {
                 Constant.ITEM_POS_NO_EQUIPED);
         GameObject actionResource = item(996_209, ACTION_RESOURCE_TEMPLATE, 1,
                 Constant.ITEM_POS_NO_EQUIPED);
+        GameObject quest = item(996_213, QUEST_TEMPLATE, 1,
+                Constant.ITEM_POS_NO_EQUIPED);
+        GameObject livingObject = item(996_214, LIVING_OBJECT_TEMPLATE, 1,
+                Constant.ITEM_POS_NO_EQUIPED);
 
         check(GameClient.isBreakableCrusherObject(ring),
                 "An unequipped equipment item must be breakable");
@@ -106,6 +114,10 @@ public final class CrusherChecks {
                 "Dofus must not be accepted by the crusher");
         check(!GameClient.isBreakableCrusherObject(actionResource),
                 "A PA cost must not turn a non-equipment resource into crusher input");
+        check(!GameClient.isBreakableCrusherObject(quest),
+                "Quest objects must not be accepted by the crusher");
+        check(!GameClient.isBreakableCrusherObject(livingObject),
+                "Living-object items must not be accepted by the crusher");
     }
 
     private static void validationRejectsTheWholeSelectionWhenOneLineIsStale() {
@@ -129,6 +141,18 @@ public final class CrusherChecks {
         selection.set(1, new Couple<>(second.getGuid(), 1));
         check(GameClient.isValidCrusherSelection(inventory, selection),
                 "A complete available selection must validate");
+
+        GameObject replacedByResource = item(second.getGuid(),
+                RESOURCE_TEMPLATE, 1, Constant.ITEM_POS_NO_EQUIPED);
+        inventory.put(second.getGuid(), replacedByResource);
+        check(!GameClient.isValidCrusherSelection(inventory, selection),
+                "Ready validation must reject a selected GUID replaced by a forbidden type");
+
+        inventory.put(second.getGuid(), second);
+        second.setPosition(Constant.ITEM_POS_ANNEAU1);
+        check(!GameClient.isValidCrusherSelection(inventory, selection),
+                "Ready validation must reject equipment moved out of the inventory");
+        second.setPosition(Constant.ITEM_POS_NO_EQUIPED);
 
         inventory.remove(second.getGuid());
         check(!GameClient.isValidCrusherSelection(inventory, selection),

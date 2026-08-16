@@ -254,20 +254,23 @@ public class ObjectTemplate {
         GameObject item = null;
         if (getType() == Constant.ITEM_TYPE_CERTIFICAT_CHANIL) {
             PetEntry myPets = World.world.getPetsEntry(obj.getGuid());
+            if (myPets == null)
+                return null;
             Map<Integer, String> txtStat = new HashMap<>();
             Map<Integer, String> actualStat = obj.getTxtStat();
             if (actualStat.containsKey(Constant.STATS_PETS_PDV))
                 txtStat.put(Constant.STATS_PETS_PDV, actualStat.get(Constant.STATS_PETS_PDV));
-            if (actualStat.containsKey(Constant.STATS_PETS_DATE))
-                txtStat.put(Constant.STATS_PETS_DATE, myPets.getLastEatDate() + "");
+            txtStat.put(Constant.STATS_PETS_DATE, Long.toString(myPets.getLastEatDate()));
             if (actualStat.containsKey(Constant.STATS_PETS_POIDS))
                 txtStat.put(Constant.STATS_PETS_POIDS, actualStat.get(Constant.STATS_PETS_POIDS));
-            if (actualStat.containsKey(Constant.STATS_PETS_EPO))
-                txtStat.put(Constant.STATS_PETS_EPO, actualStat.get(Constant.STATS_PETS_EPO));
+            if (myPets.getIsEupeoh() || hasPetEpo(actualStat))
+                txtStat.put(Constant.STATS_PETS_EPO, Integer.toHexString(1));
             if (actualStat.containsKey(Constant.STATS_PETS_REPAS))
                 txtStat.put(Constant.STATS_PETS_REPAS, actualStat.get(Constant.STATS_PETS_REPAS));
-            item = new GameObject(-1, getId(), 1, Constant.ITEM_POS_NO_EQUIPED, obj.getStats(), new ArrayList<>(), new HashMap<>(), txtStat, 0);
-            ((ObjectData) DatabaseManager.get(ObjectData.class)).insert(item);
+            item = new GameObject(-1, getId(), 1, Constant.ITEM_POS_NO_EQUIPED,
+                    obj.getStats(), new ArrayList<>(), copyPetSoulStats(obj), txtStat, 0);
+            if (!((ObjectData) DatabaseManager.get(ObjectData.class)).insert(item))
+                return null;
             ((PetData) DatabaseManager.get(PetData.class)).delete(World.world.getPetsEntry(obj.getGuid()));
             World.world.removePetsEntry(obj.getGuid());
         }
@@ -277,17 +280,91 @@ public class ObjectTemplate {
     public GameObject createNewFamilier(GameObject obj) {
         Map<Integer, String> stats = new HashMap<>();
         stats.putAll(obj.getTxtStat());
-        GameObject object = new GameObject(-1, getId(), 1, Constant.ITEM_POS_NO_EQUIPED, obj.getStats(), new ArrayList<>(), new HashMap<>(), stats, 0);
+        GameObject object = new GameObject(-1, getId(), 1,
+                Constant.ITEM_POS_NO_EQUIPED, obj.getStats(), new ArrayList<>(),
+                copyPetSoulStats(obj), stats, 0);
 
-        if(((ObjectData) DatabaseManager.get(ObjectData.class)).insert(object)) {
-            PetEntry petEntry = new PetEntry(object.getGuid(), getId(), System.currentTimeMillis(), 0, Integer.parseInt(stats.get(Constant.STATS_PETS_PDV), 16), Integer.parseInt(stats.get(Constant.STATS_PETS_POIDS), 16), !stats.containsKey(Constant.STATS_PETS_EPO));
+        ObjectData objectData = (ObjectData) DatabaseManager.get(ObjectData.class);
+        if(objectData.insert(object)) {
+            long now = System.currentTimeMillis();
+            PetEntry petEntry = new PetEntry(object.getGuid(), getId(),
+                    parsePetLastEatDate(stats.get(Constant.STATS_PETS_DATE), now), 0,
+                    parsePetHexStat(stats.get(Constant.STATS_PETS_PDV), 10),
+                    parsePetCorpulence(stats.get(Constant.STATS_PETS_POIDS)),
+                    hasPetEpo(stats));
 
-            if (((PetData) DatabaseManager.get(PetData.class)).insert(petEntry)) {
+            PetData petData = (PetData) DatabaseManager.get(PetData.class);
+            if (petData.insert(petEntry)) {
                 World.world.addPetsEntry(petEntry);
-                return object;
+                if (objectData.updateSafely(object))
+                    return object;
+                World.world.removePetsEntry(petEntry.getObjectId());
+                petData.delete(petEntry);
             }
+            objectData.deleteSafely(object);
         }
         return null;
+    }
+
+    static boolean hasPetEpo(Map<Integer, String> stats) {
+        return stats != null && stats.containsKey(Constant.STATS_PETS_EPO);
+    }
+
+    static Map<Integer, Integer> copyPetSoulStats(GameObject object) {
+        return object == null
+                ? new HashMap<>()
+                : new HashMap<>(object.getSoulStat());
+    }
+
+    private static int parsePetHexStat(String value, int fallback) {
+        try {
+            return value == null ? fallback : Integer.parseInt(value, 16);
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private static int parsePetCorpulence(String value) {
+        try {
+            return value == null ? 0 : Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private static long parsePetLastEatDate(String value, long fallback) {
+        if (value == null || value.isEmpty())
+            return fallback;
+        if (!value.contains("#")) {
+            try {
+                return Long.parseLong(value);
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
+
+        try {
+            String encoded = value.charAt(0) == '#' ? value.substring(1) : value;
+            String[] parts = encoded.split("#");
+            if (parts.length != 3)
+                return fallback;
+
+            int year = Integer.parseInt(parts[0], 16);
+            int monthAndDay = Integer.parseInt(parts[1], 16);
+            int hourAndMinute = Integer.parseInt(parts[2], 16);
+            int month = monthAndDay / 100;
+            int day = monthAndDay % 100;
+            int hour = hourAndMinute / 100;
+            int minute = hourAndMinute % 100;
+
+            Calendar calendar = Calendar.getInstance();
+            calendar.clear();
+            calendar.setLenient(false);
+            calendar.set(year, month, day, hour, minute, 0);
+            return calendar.getTimeInMillis();
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
     }
 
     public GameObject createNewBenediction(int turn) {

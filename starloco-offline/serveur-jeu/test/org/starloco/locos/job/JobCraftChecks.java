@@ -51,8 +51,9 @@ public final class JobCraftChecks {
         invalidRecipesNeverConsumeIngredients();
         replayRestorationIsAllOrNothing();
         magingRepeatKeepsItsRebuiltSelection();
+        magingJetThresholdsUseTheActualPercentage();
         magingCopiesStacksBeforeMutationAndCommitsOnce();
-        secureMagingNeverReportsAnEmptyAttemptAsSuccessful();
+        secureMagingNeverReportsAnUncommittedAttemptAsSuccessful();
         publicCraftExecutionDistinguishesInvalidFailureAndSuccess();
         postCommitNotificationFailuresPreserveTheExecutionOutcome();
         legacyIntegerCraftPayloadsAreIgnoredSafely();
@@ -448,22 +449,67 @@ public final class JobCraftChecks {
                 "A failed result insert must abort the maging commit");
     }
 
-    private static void secureMagingNeverReportsAnEmptyAttemptAsSuccessful()
+    private static void magingJetThresholdsUseTheActualPercentage() {
+        check(!JobAction.isMagingJetAbovePercent(65, 100, 65),
+                "A jet exactly at a strict maging threshold must not exceed it");
+        for (int actualJet = 66; actualJet <= 99; actualJet++)
+            check(JobAction.isMagingJetAbovePercent(actualJet, 100, 65),
+                    "A 66-99% jet must not collapse to zero: " + actualJet);
+
+        check(!JobAction.isMagingJetAbovePercent(80, 100, 80)
+                        && JobAction.isMagingJetAbovePercent(81, 100, 80),
+                "The 80% maging threshold must preserve its strict boundary");
+        check(!JobAction.isMagingJetAbovePercent(85, 100, 85)
+                        && JobAction.isMagingJetAbovePercent(86, 100, 85),
+                "The 85% maging threshold must preserve its strict boundary");
+        check(!JobAction.isMagingJetAbovePercent(99, 0, 65),
+                "A missing maximum jet must never satisfy a percentage threshold");
+    }
+
+    private static void secureMagingNeverReportsAnUncommittedAttemptAsSuccessful()
             throws Exception {
+        ObjectTemplate weaponTemplate = installTemplate(993_021,
+                Constant.ITEM_TYPE_DAGUES, "");
+        GameObject forgedObject = item(-995_049, weaponTemplate.getId(), 1,
+                Constant.ITEM_POS_NO_EQUIPED);
+        forgedObject.getStats().addOneStat(Constant.STATS_ADD_FORC, 12);
         Job mageJob = new Job(JobConstant.JOB_FM_DAGUE, "", "", "");
         JobStat mageStat = new JobStat(3, mageJob, 100, 0);
         Context crafter = context(mageStat);
-        Context receiver = context(null);
+        Context receiver = context(null, forgedObject);
         JobAction action = mageStat.getJobActionBySkill(1);
         Map<Player, java.util.ArrayList<Couple<Integer, Integer>>> selected =
                 new HashMap<>();
         selected.put(crafter.player, new java.util.ArrayList<>());
-        selected.put(receiver.player, new java.util.ArrayList<>());
+        java.util.ArrayList<Couple<Integer, Integer>> receiverItems =
+                new java.util.ArrayList<>();
+        receiverItems.add(new Couple<>(forgedObject.getGuid(), 1));
+        selected.put(receiver.player, receiverItems);
 
-        check(action != null
-                        && !action.craftPublicMode(crafter.player,
-                        receiver.player, selected),
-                "Secure maging must return the real attempt result, not unconditional success");
+        check(action != null, "The secure-maging test action must exist");
+        JobAction.CraftExecution execution = action.executePublicCraft(
+                crafter.player, receiver.player, selected);
+        boolean legacySuccess = action.craftPublicMode(
+                crafter.player, receiver.player, selected);
+
+        check(!execution.isCompleted() && !execution.isSuccess(),
+                "A secure maging attempt without a rune must remain invalid");
+        check(!legacySuccess,
+                "The legacy secure-craft result must not turn an invalid attempt into success");
+        check(receiver.player.getItems().get(forgedObject.getGuid()) == forgedObject
+                        && forgedObject.getQuantity() == 1
+                        && forgedObject.getStats().get(Constant.STATS_ADD_FORC) == 12,
+                "An invalid secure maging attempt must not consume or mutate its item");
+        check(crafter.stub.writes().stream().noneMatch(
+                        JobCraftChecks::isSuccessfulSecureCraftPacket)
+                        && receiver.stub.writes().stream().noneMatch(
+                        JobCraftChecks::isSuccessfulSecureCraftPacket),
+                "Secure maging must not announce success before a committed mutation");
+    }
+
+    private static boolean isSuccessfulSecureCraftPacket(Object packet) {
+        String value = String.valueOf(packet);
+        return value.startsWith("EcK;") || value.startsWith("ErKO+");
     }
 
     private static void publicCraftExecutionDistinguishesInvalidFailureAndSuccess()

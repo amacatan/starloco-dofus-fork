@@ -16,6 +16,7 @@ import org.starloco.locos.database.data.login.PlayerData;
 import org.starloco.locos.dynamic.Noel;
 import org.starloco.locos.entity.Prism;
 import org.starloco.locos.entity.mount.Mount;
+import org.starloco.locos.entity.pet.Pet;
 import org.starloco.locos.entity.pet.PetEntry;
 import org.starloco.locos.fight.Fight;
 import org.starloco.locos.fight.spells.SpellEffect;
@@ -371,10 +372,14 @@ public class ObjectAction {
                         PetEntry pets = World.world.getPetsEntry(object0.getGuid());
                         if (pets == null)
                             return;
-                        if (obj.getTemplate().getConditions().contains(object0.getTemplate().getId() + ""))
-                            pets.giveEpo(player);
+                        Pet petDefinition = World.world.getPets(object0.getTemplate().getId());
+                        if (petDefinition != null
+                                && petDefinition.getEpo() == obj.getTemplate().getId())
+                            isOk = pets.giveEpo(player);
                         else
                             isOk = false;
+                        if (!isOk)
+                            send = false;
                         break;
 
                     case 11://Chang� de Sexe.

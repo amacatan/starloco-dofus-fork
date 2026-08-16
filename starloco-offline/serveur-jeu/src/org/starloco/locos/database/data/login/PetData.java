@@ -37,22 +37,25 @@ public class PetData extends FunctionDAO<PetEntry> {
     @Override
     public boolean insert(PetEntry entity) {
         PreparedStatement p = null;
+        boolean inserted = false;
         try {
             p = getPreparedStatement("INSERT INTO " + getTableName() + "(`id`, `template`, `lastEatDate`, `quantityEat`, `pdv`, `corpulence`, `isEPO`) VALUES (?, ?, ?, ?, ?, ?, ?);");
+            if (p == null)
+                return false;
             p.setInt(1, entity.getObjectId());
             p.setInt(2, entity.getTemplate());
             p.setLong(3, entity.getLastEatDate());
-            p.setInt(4, 0);
-            p.setInt(5, 10);
-            p.setInt(6, 0);
-            p.setInt(7, 0);
-            execute(p);
+            p.setInt(4, entity.getQuaEat());
+            p.setInt(5, entity.getPdv());
+            p.setInt(6, entity.getCorpulence());
+            p.setInt(7, entity.getIsEupeoh() ? 1 : 0);
+            inserted = p.executeUpdate() == 1;
         } catch (SQLException e) {
             super.sendError(e);
         } finally {
             close(p);
         }
-        return true;
+        return inserted;
     }
 
     @Override

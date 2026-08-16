@@ -138,7 +138,13 @@ public class PetEntry {
     }
 
     public int getMaxStat() {
-        return World.world.getPets(this.template).getMax();
+        Pet pet = World.world.getPets(this.template);
+        if (pet == null)
+            return 0;
+        long maximum = pet.getMax();
+        if (this.isEupeoh)
+            maximum = maximum * 110L / 100L;
+        return (int) Math.min(Integer.MAX_VALUE, maximum);
     }
 
     public void looseFight(Player player) {
@@ -198,7 +204,7 @@ public class PetEntry {
             SocketManager.GAME_SEND_Im_PACKET(p, "029");
             if (this.quaEat >= RATIO_FEED) {//3 normalement
                 //Update de l'item
-                if ((this.getIsEupeoh() ? pets.getMax() * 1.1 : pets.getMax()) > this.getCurrentStatsPoids())//Si il est sous l'emprise d'EPO on augmente de +10% le jet maximum
+                if (this.getMaxStat() > this.getCurrentStatsPoids())//Si il est sous l'emprise d'EPO on augmente de +10% le jet maximum
                 {
                     if (obj.getStats().getEffects().containsKey(statsID)) {
                         int value = obj.getStats().getEffects().get(statsID)
@@ -232,7 +238,7 @@ public class PetEntry {
             }
             if (this.quaEat >= RATIO_FEED) {
                 //Update de l'item
-                if ((this.getIsEupeoh() ? pets.getMax() * 1.1 : pets.getMax()) > this.getCurrentStatsPoids())//Si il est sous l'emprise d'EPO on augmente de +10% le jet maximum
+                if (this.getMaxStat() > this.getCurrentStatsPoids())//Si il est sous l'emprise d'EPO on augmente de +10% le jet maximum
                 {
                     if (obj.getStats().getEffects().containsKey(statsID)) {
                         int value = obj.getStats().getEffects().get(statsID)
@@ -258,7 +264,7 @@ public class PetEntry {
                 return;
             if (this.quaEat >= RATIO_FEED) {
                 //Update de l'item
-                if ((this.getIsEupeoh() ? pets.getMax() * 1.1 : pets.getMax()) > this.getCurrentStatsPoids())//Si il est sous l'emprise d'EPO on augmente de +10% le jet maximum
+                if (this.getMaxStat() > this.getCurrentStatsPoids())//Si il est sous l'emprise d'EPO on augmente de +10% le jet maximum
                 {
                     if (obj.getStats().getEffects().containsKey(statsID)) {
                         int value = obj.getStats().getEffects().get(statsID)
@@ -468,18 +474,28 @@ public class PetEntry {
         ((PetData) DatabaseManager.get(PetData.class)).update(this);
     }
 
-    public void giveEpo(Player p) {
+    synchronized boolean applyEpo(GameObject object) {
+        if (object == null || object.getGuid() != this.objectId || this.isEupeoh)
+            return false;
+
+        this.isEupeoh = true;
+        object.getTxtStat().put(Constant.STATS_PETS_EPO, Integer.toHexString(1));
+        return true;
+    }
+
+    public boolean giveEpo(Player p) {
         GameObject obj = World.world.getGameObject(this.objectId);
         if (obj == null)
-            return;
+            return false;
         Pet pets = World.world.getPets(obj.getTemplate().getId());
         if (pets == null)
-            return;
-        if (this.isEupeoh)
-            return;
-        obj.getTxtStat().put(Constant.STATS_PETS_EPO, Integer.toHexString(1));
+            return false;
+        if (!this.applyEpo(obj))
+            return false;
         SocketManager.GAME_SEND_Im_PACKET(p, "032");
         SocketManager.GAME_SEND_UPDATE_OBJECT_DISPLAY_PACKET(p, obj);
+        ((ObjectData) DatabaseManager.get(ObjectData.class)).update(obj);
         ((PetData) DatabaseManager.get(PetData.class)).update(this);
+        return true;
     }
 }

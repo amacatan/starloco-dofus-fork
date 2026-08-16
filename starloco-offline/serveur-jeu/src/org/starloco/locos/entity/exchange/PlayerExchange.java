@@ -3,6 +3,7 @@ package org.starloco.locos.entity.exchange;
 import org.starloco.locos.client.Player;
 import org.starloco.locos.common.SocketManager;
 import org.starloco.locos.database.DatabaseManager;
+import org.starloco.locos.database.data.login.ObjectData;
 import org.starloco.locos.database.data.login.PlayerData;
 import org.starloco.locos.entity.npc.NpcTemplate;
 import org.starloco.locos.entity.pet.PetEntry;
@@ -10,6 +11,7 @@ import org.starloco.locos.game.world.World;
 import org.starloco.locos.game.world.World.Couple;
 import org.starloco.locos.kernel.Constant;
 import org.starloco.locos.kernel.Logging;
+import org.starloco.locos.job.JobAction;
 import org.starloco.locos.object.GameObject;
 import org.starloco.locos.object.ObjectTemplate;
 
@@ -235,18 +237,100 @@ public class PlayerExchange extends Exchange {
         ((PlayerData) DatabaseManager.get(PlayerData.class)).update(this.player2);
     }
 
-    protected void giveObject(Couple<Integer, Integer> couple, GameObject object) {
-        if(object == null) return;
-        if ((object.getQuantity() - couple.second) < 1) {
-            this.player2.removeItem(couple.first);
-            couple.second = object.getQuantity();
-            SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(this.player2, couple.first);
-            if (!this.player1.addItem(object, true, false)) World.world.removeGameObject(couple.first);
+    /**
+     * Transfers one selected stack from player2 to player1.  The return value
+     * is important for secure crafting: a failed clone INSERT or source UPDATE
+     * must never be mistaken for a successful payment.
+     */
+    protected boolean giveObject(Couple<Integer, Integer> couple,
+                                 GameObject object) {
+        Player first = JobAction.compareInventoryLockOrder(
+                this.player1, this.player2) <= 0 ? this.player1 : this.player2;
+        Player second = first == this.player1 ? this.player2 : this.player1;
+        synchronized (first.getItems()) {
+            synchronized (second.getItems()) {
+                return this.giveObjectLocked(couple, object);
+            }
+        }
+    }
+
+    private boolean giveObjectLocked(Couple<Integer, Integer> couple,
+                                     GameObject object) {
+        if (couple == null || couple.first == null || couple.second == null
+                || couple.second <= 0 || object == null
+                || couple.first != object.getGuid()
+                || object.getTemplate() == null || object.getQuantity() <= 0
+                || object.getPosition() != Constant.ITEM_POS_NO_EQUIPED
+                || object.isAttach()
+                || this.player2.getItems().get(object.getGuid()) != object
+                || this.player1.getItems().containsKey(object.getGuid())
+                || couple.second > object.getQuantity()) {
+            return false;
+        }
+
+        int transferredQuantity = couple.second;
+        GameObject transferred = object;
+        if (transferredQuantity == object.getQuantity()) {
+            this.player2.getItems().remove(object.getGuid());
+            this.player1.getItems().put(object.getGuid(), object);
         } else {
-            object.setQuantity(object.getQuantity() - couple.second);
-            SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(this.player2, object);
-            GameObject newObj = object.getClone(couple.second, true);
-            if (this.player1.addItem(newObj, true, false)) World.world.addGameObject(newObj);
+            ObjectData objectData = DatabaseManager.get(ObjectData.class);
+            if (objectData == null)
+                return false;
+
+            transferred = object.getClone(transferredQuantity, true);
+            if (transferred == null || transferred.getGuid() <= 0)
+                return false;
+            if (this.player1.getItems().containsKey(transferred.getGuid())
+                    || this.player2.getItems().containsKey(transferred.getGuid())) {
+                objectData.deleteSafely(transferred);
+                return false;
+            }
+
+            int originalQuantity = object.getQuantity();
+            object.setQuantity(originalQuantity - transferredQuantity);
+            if (!objectData.updateSafely(object)) {
+                object.setQuantity(originalQuantity);
+                objectData.deleteSafely(transferred);
+                return false;
+            }
+
+            this.player1.getItems().put(transferred.getGuid(), transferred);
+            World.world.addGameObject(transferred);
+        }
+
+        couple.second = transferredQuantity;
+        this.notifyObjectTransfer(object, transferred,
+                transferred == object);
+        return true;
+    }
+
+    protected void notifyObjectTransfer(GameObject source,
+                                        GameObject transferred,
+                                        boolean completeStack) {
+        try {
+            if (this.player2.isOnline()) {
+                if (completeStack)
+                    SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(
+                            this.player2, source.getGuid());
+                else
+                    SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(
+                            this.player2, source);
+                SocketManager.GAME_SEND_Ow_PACKET(this.player2);
+            }
+            if (this.player1.isOnline()) {
+                SocketManager.GAME_SEND_OAKO_PACKET(this.player1, transferred);
+                SocketManager.GAME_SEND_Ow_PACKET(this.player1);
+            }
+        } catch (RuntimeException | Error notificationFailure) {
+            try {
+                if (Logging.USE_LOG)
+                    Logging.getInstance().write("Exchange",
+                            "Notification post-transfert ignorée: "
+                                    + notificationFailure);
+            } catch (Throwable ignored) {
+                // The ownership transfer is already committed in memory/DB.
+            }
         }
     }
 

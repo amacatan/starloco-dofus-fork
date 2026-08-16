@@ -243,6 +243,14 @@ public class World implements Scripted<SWorld> {
             objects.remove(id);
         }
     }
+
+    /**
+     * Removes only the live cache entry after another component has already
+     * committed the corresponding SQL deletion in a larger transaction.
+     */
+    public void forgetGameObject(int id) {
+        objects.remove(id);
+    }
     //endregion
 
     public Map<Integer, Spell> getSpells() {

@@ -46,6 +46,13 @@ public class GameObject {
 
         Stats = new Stats();
         this.parseStringToStats(strStats);
+        if (this.template != null
+                && !this.txtStats.containsKey(Constant.STATS_RESIST)) {
+            String initialDurability = this.template.createInitialDurabilityStats()
+                    .get(Constant.STATS_RESIST);
+            if (initialDurability != null)
+                this.txtStats.put(Constant.STATS_RESIST, initialDurability);
+        }
     }
 
     public GameObject(int Guid) {
@@ -80,11 +87,20 @@ public class GameObject {
         for(SpellEffect effect : this.getEffects())
             effects.add(effect.clone());
 
-        GameObject object = new GameObject(-1, this.getTemplate().getId(), qua, insert ? Constant.ITEM_POS_NO_EQUIPED : this.getPosition(), newStats, effects, this.getSoulStat(), this.getTxtStat(), this.getPuit());
-        if(insert)
-            if(((ObjectData) DatabaseManager.get(ObjectData.class)).insert(object))
-                return object;
-        return null;
+        // A split or a maging operation must not share mutable metadata with the
+        // source stack.  In particular, signing the clone used to sign every
+        // remaining unit because both objects referenced the same txtStats map.
+        Map<Integer, Integer> soulStats = new HashMap<>(this.getSoulStat());
+        Map<Integer, String> textStats = new HashMap<>(this.getTxtStat());
+        GameObject object = new GameObject(-1, this.getTemplate().getId(), qua,
+                insert ? Constant.ITEM_POS_NO_EQUIPED : this.getPosition(),
+                newStats, effects, soulStats, textStats, this.getPuit());
+        object.getSpellStats().addAll(this.getSpellStats());
+        if (!insert)
+            return object;
+
+        ObjectData objectData = DatabaseManager.get(ObjectData.class);
+        return objectData != null && objectData.insert(object) ? object : null;
     }
 
     public void setId(int id) {

@@ -65,6 +65,7 @@ tasks.register('unitTest', JavaExec) {
     dependsOn testClasses
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'org.starloco.locos.tests.GameUnitChecks'
+    systemProperty 'starloco.projectDir', projectDir.absolutePath
     workingDir unitTestWorkingDir
     doFirst {
         unitTestWorkingDir.mkdirs()

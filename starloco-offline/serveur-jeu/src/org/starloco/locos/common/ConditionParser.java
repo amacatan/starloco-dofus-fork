@@ -24,6 +24,7 @@ public class ConditionParser {
             return true;
         if(req.contains("BI") || perso == null)
             return false;
+        String originalReq = req;
         Jep jep = new Jep();
         req = req.replace("&", "&&").replace("=", "==").replace("|", "||").replace("!", "!=").replace("~", "==");
         if (req.contains("Sc"))
@@ -51,7 +52,7 @@ public class ConditionParser {
         if (req.contains("QEt"))
             return haveQEt(req, perso);
         if (req.contains("QE"))
-            return haveQE(req, perso);
+            return haveQE(originalReq, perso);
         if (req.contains("QT"))
             return haveQT(req, perso);
         if (req.contains("Ce"))
@@ -242,17 +243,48 @@ public class ConditionParser {
         return false;
     }
 
-    // Avoir la qu�te en cours.
+    // Avoir la quête en cours.
     private boolean haveQE(String req, Player player) {
         if (player == null)
             return false;
-        int id = Integer.parseInt((req.contains("==") ? req.split("==")[1] : req.split("!=")[1]));
+
+        String condition = req.trim();
+        if (!condition.startsWith("QE"))
+            return false;
+
+        String comparison = condition.substring(2);
+        final boolean equality;
+        final int operatorLength;
+        if (comparison.startsWith("==")) {
+            equality = true;
+            operatorLength = 2;
+        } else if (comparison.startsWith("!=")) {
+            equality = false;
+            operatorLength = 2;
+        } else if (comparison.startsWith("=")) {
+            equality = true;
+            operatorLength = 1;
+        } else if (comparison.startsWith("!")) {
+            equality = false;
+            operatorLength = 1;
+        } else {
+            return false;
+        }
+
+        String questId = comparison.substring(operatorLength);
+        if (questId.isEmpty() || !questId.chars().allMatch(Character::isDigit))
+            return false;
+
+        final int id;
+        try {
+            id = Integer.parseInt(questId);
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
 
         QuestProgress qp = player.getQuestProgress(id);
-        if (qp == null)
-            return req.contains("==");
-
-        return qp.isFinished();
+        boolean ongoing = qp != null && !qp.isFinished();
+        return equality == ongoing;
     }
 
     private boolean haveQT(String req, Player player) {

@@ -124,6 +124,7 @@ run_tests() {
   docker run --rm --network none \
     -e GRADLE_USER_HOME=/gradle-cache \
     -v "$repo:/src" \
+    -v "$ROOT/build-contexts/game:/build-contexts/game" \
     -v "$ROOT/cache/gradle:/gradle-cache" \
     -w /src "$gradle_image" \
     gradle --offline --no-daemon --stacktrace clean check jar

@@ -196,7 +196,7 @@ public class JobConstant {
                 return "116";
             case 46:
                 return "117";
-            case 67:
+            case 47:
                 return "115";
             case 43:
                 return "1";
@@ -265,19 +265,22 @@ public class JobConstant {
                 //Sculter Arc
                 list.add(new JobAction(15, getTotalCaseByJobLevel(lvl), 0, true, getChanceForMaxCase(lvl), -1));
                 //ReSculter Arc
-                list.add(new JobAction(149, 3, 0, true, getChanceForMaxCase(lvl), -1));
+                if (lvl >= 10)
+                    list.add(new JobAction(149, 3, 0, true, getChanceForMaxCase(lvl), -1));
                 break;
             case JOB_S_BATON:
                 //Sculter Baton
                 list.add(new JobAction(17, getTotalCaseByJobLevel(lvl), 0, true, getChanceForMaxCase(lvl), -1));
                 //ReSculter Baton
-                list.add(new JobAction(147, 3, 0, true, getChanceForMaxCase(lvl), -1));
+                if (lvl >= 10)
+                    list.add(new JobAction(147, 3, 0, true, getChanceForMaxCase(lvl), -1));
                 break;
             case JOB_S_BAGUETTE:
                 //Sculter Baguette
                 list.add(new JobAction(16, getTotalCaseByJobLevel(lvl), 0, true, getChanceForMaxCase(lvl), -1));
                 //ReSculter Baguette
-                list.add(new JobAction(148, 3, 0, true, getChanceForMaxCase(lvl), -1));
+                if (lvl >= 10)
+                    list.add(new JobAction(148, 3, 0, true, getChanceForMaxCase(lvl), -1));
                 break;
             case JOB_CORDOMAGE:
                 //FM Bottes
@@ -303,11 +306,13 @@ public class JobConstant {
                 //Forger Ep�e
                 list.add(new JobAction(20, getTotalCaseByJobLevel(lvl), 0, true, getChanceForMaxCase(lvl), -1));
                 //Reforger Ep�e
-                list.add(new JobAction(145, 3, 0, true, getChanceForMaxCase(lvl), -1));
+                if (lvl >= 10)
+                    list.add(new JobAction(145, 3, 0, true, getChanceForMaxCase(lvl), -1));
                 break;
             case JOB_F_DAGUE:
                 //Forger Dague
-                list.add(new JobAction(142, 3, 0, true, getChanceForMaxCase(lvl), -1));
+                if (lvl >= 10)
+                    list.add(new JobAction(142, 3, 0, true, getChanceForMaxCase(lvl), -1));
                 //Reforger Dague
                 list.add(new JobAction(18, getTotalCaseByJobLevel(lvl), 0, true, getChanceForMaxCase(lvl), -1));
                 break;
@@ -315,19 +320,22 @@ public class JobConstant {
                 //Forger Marteau
                 list.add(new JobAction(19, getTotalCaseByJobLevel(lvl), 0, true, getChanceForMaxCase(lvl), -1));
                 //Reforger Marteau
-                list.add(new JobAction(144, 3, 0, true, getChanceForMaxCase(lvl), -1));
+                if (lvl >= 10)
+                    list.add(new JobAction(144, 3, 0, true, getChanceForMaxCase(lvl), -1));
                 break;
             case JOB_F_PELLE:
                 //Forger Pelle
                 list.add(new JobAction(21, getTotalCaseByJobLevel(lvl), 0, true, getChanceForMaxCase(lvl), -1));
                 //Reforger Pelle
-                list.add(new JobAction(146, 3, 0, true, getChanceForMaxCase(lvl), -1));
+                if (lvl >= 10)
+                    list.add(new JobAction(146, 3, 0, true, getChanceForMaxCase(lvl), -1));
                 break;
             case JOB_F_HACHES:
                 //Forger Hache
                 list.add(new JobAction(65, getTotalCaseByJobLevel(lvl), 0, true, getChanceForMaxCase(lvl), -1));
                 //Reforger Hache
-                list.add(new JobAction(143, 3, 0, true, getChanceForMaxCase(lvl), -1));
+                if (lvl >= 10)
+                    list.add(new JobAction(143, 3, 0, true, getChanceForMaxCase(lvl), -1));
                 break;
             case JOB_FM_HACHES:
                 //Reforger une hache
@@ -635,8 +643,8 @@ public class JobConstant {
             case 1757: // Crabe Sourimi
                 return 1759;
             case 1779: // Bar
-                return 1779;
-            case 1785: // Goujon
+                return 1792;
+            case 1782: // Goujon
                 return 1790;
             case 1784: // Raie
                 return 1788;

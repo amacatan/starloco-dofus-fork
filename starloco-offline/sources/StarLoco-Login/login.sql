@@ -12705,7 +12705,7 @@ CREATE TABLE `world_objects`  (
   `stats` text CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL,
   `puit` int(11) NOT NULL DEFAULT 0,
   UNIQUE INDEX `guid`(`id`) USING BTREE
-) ENGINE = MyISAM AUTO_INCREMENT = 7 CHARACTER SET = utf8 COLLATE = utf8_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 7 CHARACTER SET = utf8 COLLATE = utf8_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of world_objects
@@ -12817,7 +12817,7 @@ CREATE TABLE `world_players`  (
   `totalKills` int(11) NOT NULL DEFAULT 0,
   `revive` tinyint(4) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`) USING BTREE
-) ENGINE = MyISAM AUTO_INCREMENT = 2 CHARACTER SET = utf8 COLLATE = utf8_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8 COLLATE = utf8_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Records of world_players

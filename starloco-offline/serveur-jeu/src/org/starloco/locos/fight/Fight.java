@@ -134,7 +134,7 @@ public class Fight {
             SocketManager.GAME_SEND_ALTER_GM_PACKET(perso.getCurMap(), perso);
         }
 
-        if (init2.getStalk() == null || init2.getStalk().getTarget().getId() != perso.getId()) {
+        if (!hasStalkTarget(init2, perso)) {
             this.start0 = map.getPlaces().get(0).stream().map(map::getCase).collect(Collectors.collectingAndThen(Collectors.toList(), Collections::unmodifiableList));
             this.start1 = map.getPlaces().get(1).stream().map(map::getCase).collect(Collectors.collectingAndThen(Collectors.toList(), Collections::unmodifiableList));
 
@@ -1461,11 +1461,9 @@ public class Fight {
                                             if (energy == 0) {
                                                 if (getType() == Constant.FIGHT_TYPE_AGRESSION) {
                                                     for (Fighter enemy : (this.team1.containsValue(caster) ? this.team0 : this.team1).values()) {
-                                                        if (enemy.getPlayer() != null && enemy.getPlayer().getStalk() != null && player != null) {
-                                                            if (enemy.getPlayer().getStalk().getTarget() == caster.getPlayer()) {
-                                                                player.teleportFaction(enemy.getPlayer().getAlignment());
-                                                                break;
-                                                            }
+                                                        if (hasStalkTarget(enemy.getPlayer(), caster.getPlayer())) {
+                                                            player.teleportFaction(enemy.getPlayer().getAlignment());
+                                                            break;
                                                         }
                                                     }
                                                     TimerWaiter.addNext(player::setFuneral, 1, TimeUnit.SECONDS);
@@ -1475,11 +1473,9 @@ public class Fight {
                                             } else {
                                                 if (getType() == Constant.FIGHT_TYPE_AGRESSION) {
                                                     for (Fighter enemy : (this.team1.containsValue(caster) ? this.team0 : this.team1).values()) {
-                                                        if (enemy.getPlayer() != null) {
-                                                            if (enemy.getPlayer().getStalk().getTarget() == caster.getPlayer()) {
-                                                                player.teleportFaction(enemy.getPlayer().getAlignment());
-                                                                break;
-                                                            }
+                                                        if (hasStalkTarget(enemy.getPlayer(), caster.getPlayer())) {
+                                                            player.teleportFaction(enemy.getPlayer().getAlignment());
+                                                            break;
                                                         }
                                                     }
                                                 } else {
@@ -1575,11 +1571,9 @@ public class Fight {
                                     if (energy == 0) {
                                         if (getType() == Constant.FIGHT_TYPE_AGRESSION) {
                                             for (Fighter enemy : (this.team1.containsValue(caster) ? this.team0 : this.team1).values()) {
-                                                if (enemy.getPlayer() != null) {
-                                                    if (enemy.getPlayer().getStalk().getTarget() == caster.getPlayer()) {
-                                                        player.teleportFaction(enemy.getPlayer().getAlignment());
-                                                        break;
-                                                    }
+                                                if (hasStalkTarget(enemy.getPlayer(), caster.getPlayer())) {
+                                                    player.teleportFaction(enemy.getPlayer().getAlignment());
+                                                    break;
                                                 }
                                             }
                                             TimerWaiter.addNext(player::setFuneral, 1, TimeUnit.SECONDS);
@@ -1589,11 +1583,9 @@ public class Fight {
                                     } else {
                                         if (getType() == Constant.FIGHT_TYPE_AGRESSION) {
                                             for (Fighter enemy : (this.team1.containsValue(caster) ? this.team0 : this.team1).values()) {
-                                                if (enemy.getPlayer() != null) {
-                                                    if (enemy.getPlayer().getStalk().getTarget() == caster.getPlayer()) {
-                                                        player.teleportFaction(enemy.getPlayer().getAlignment());
-                                                        break;
-                                                    }
+                                                if (hasStalkTarget(enemy.getPlayer(), caster.getPlayer())) {
+                                                    player.teleportFaction(enemy.getPlayer().getAlignment());
+                                                    break;
                                                 }
                                             }
                                         } else {
@@ -4332,10 +4324,18 @@ public class Fight {
     int getAlignementOfTraquer(Collection<Fighter> fighters,
                                Player player) {
         for (Fighter fighter : fighters)
-            if (fighter.getPlayer() != null)
-                if (fighter.getPlayer().getStalk().getTarget() == player)
-                    return (int) fighter.getPlayer().getAlignment();
+            if (hasStalkTarget(fighter.getPlayer(), player))
+                return (int) fighter.getPlayer().getAlignment();
         return 0;
+    }
+
+    static boolean hasStalkTarget(Player tracker, Player target) {
+        if (tracker == null || target == null)
+            return false;
+
+        Stalk stalk = tracker.getStalk();
+        Player stalkTarget = stalk == null ? null : stalk.getTarget();
+        return stalkTarget != null && stalkTarget.getId() == target.getId();
     }
 
     public void onGK(Player player) {
@@ -5146,6 +5146,8 @@ public class Fight {
                                     SocketManager.GAME_SEND_Ow_PACKET(target);
                                 } else {
                                     GameObject newObj = World.world.getObjTemplate(template.getId()).createNewItemWithoutDuplication(target.getItems().values(), entry.getValue(), false);
+                                    if (newObj == null)
+                                        continue;
                                     if (World.world.getObjTemplate(template.getId()).getType() == Constant.ITEM_TYPE_CERTIF_MONTURE) {
                                         //obj.setMountStats(this.getPlayer(), null);
                                         Mount mount = new Mount(Constant.getMountColorByParchoTemplate(newObj.getTemplate().getId()), target.getId(), false);

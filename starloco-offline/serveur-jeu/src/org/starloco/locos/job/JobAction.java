@@ -1,10 +1,13 @@
 package org.starloco.locos.job;
 
 import org.starloco.locos.client.Player;
+import org.starloco.locos.client.other.Stats;
 import org.starloco.locos.common.Formulas;
 import org.starloco.locos.common.SocketManager;
+import org.starloco.locos.database.DatabaseManager;
+import org.starloco.locos.database.data.login.ObjectData;
 import org.starloco.locos.fight.spells.SpellEffect;
-import org.starloco.locos.game.GameClient;
+import org.starloco.locos.game.action.ExchangeAction;
 import org.starloco.locos.game.world.World;
 import org.starloco.locos.game.world.World.Couple;
 import org.starloco.locos.job.maging.Rune;
@@ -20,6 +23,8 @@ import java.util.Map.Entry;
 
 public class JobAction {
 
+    private static final int MAX_CRAFT_REPETITIONS = 10_000;
+
     public Map<Integer, Integer> ingredients = new TreeMap<>(), lastCraft = new TreeMap<>();
     public Player player;
     public String data = "";
@@ -32,6 +37,47 @@ public class JobAction {
     private JobCraft jobCraft;
     public JobCraft oldJobCraft;
     private int reConfigingRunes = -1;
+    private CraftExecution lastMagingExecution = CraftExecution.invalid();
+    private CraftExecution lastPublicCommittedExecution = CraftExecution.invalid();
+
+    /**
+     * Result of a public/secure craft attempt.  A rejected input or a database
+     * failure is not a profession failure: no payment component may be settled
+     * for it.  Completed failures, on the other hand, consumed the validated
+     * ingredients and are eligible for the guaranteed payment and craft XP.
+     */
+    public static final class CraftExecution {
+        private final boolean completed;
+        private final boolean success;
+        private final long experience;
+
+        private CraftExecution(boolean completed, boolean success,
+                               long experience) {
+            this.completed = completed;
+            this.success = success;
+            this.experience = Math.max(0, experience);
+        }
+
+        static CraftExecution invalid() {
+            return new CraftExecution(false, false, 0);
+        }
+
+        static CraftExecution completed(boolean success, long experience) {
+            return new CraftExecution(true, success, experience);
+        }
+
+        public boolean isCompleted() {
+            return this.completed;
+        }
+
+        public boolean isSuccess() {
+            return this.success;
+        }
+
+        public long getExperience() {
+            return this.experience;
+        }
+    }
 
     public JobAction(int sk, int min, int max, boolean craft, int arg, int xpWin) {
         this.id = sk;
@@ -75,200 +121,686 @@ public class JobAction {
         return this.SM;
     }
 
-    public JobCraft getJobCraft() {
+    public synchronized JobCraft getJobCraft() {
         return this.jobCraft;
     }
 
-    public void setJobCraft(JobCraft jobCraft) {
+    public synchronized void setJobCraft(JobCraft jobCraft) {
         this.jobCraft = jobCraft;
     }
 
-    public void startCraft(Player P) {
-        this.jobCraft = new JobCraft(this, P);
+    /**
+     * Job actions kept by {@link JobStat} describe what the job can do. Craft UI
+     * state must not be stored on those shared descriptors: delayed craft tasks
+     * from an old exchange would otherwise be able to act on a newly opened one.
+     */
+    public JobAction createCraftSession(Player sessionPlayer, JobStat jobStat) {
+        JobAction session = new JobAction(this.id, this.min, this.max, this.isCraft,
+                this.isCraft ? this.chan : this.time, this.xpWin);
+        session.player = sessionPlayer;
+        session.SM = jobStat;
+        return session;
     }
 
-    private int addCraftObject(Player player, GameObject newObj) {
-        for (Entry<Integer, GameObject> entry : player.getItems().entrySet()) {
-            GameObject obj = entry.getValue();
-            if (obj.getTemplate().getId() == newObj.getTemplate().getId() && obj.getTxtStat().equals(newObj.getTxtStat())
-                    && obj.getStats().isSameStats(newObj.getStats()) && obj.getPosition() == Constant.ITEM_POS_NO_EQUIPED) {
-                obj.setQuantity(obj.getQuantity() + newObj.getQuantity());//On ajoute QUA item a la quantit� de l'objet existant
-                SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(player, obj);
-                return obj.getGuid();
-            }
-        }
+    public synchronized boolean startCraft(Player craftPlayer) {
+        if (!this.isCraft || this.jobCraft != null
+                || !this.isCurrentCraftSession(craftPlayer)
+                || !this.hasAvailableIngredients(craftPlayer))
+            return false;
 
-        player.getItems().put(newObj.getGuid(), newObj);
-        SocketManager.GAME_SEND_OAKO_PACKET(player, newObj);
-        World.world.addGameObject(newObj);
-        return -1;
+        this.broke = false;
+        this.broken = false;
+        this.jobCraft = new JobCraft(this, craftPlayer);
+        return true;
     }
 
-    public void addIngredient(Player player, int id, int quantity) {
-        int oldQuantity = this.ingredients.get(id) == null ? 0 : this.ingredients.get(id);
-        if(quantity < 0) if(- quantity > oldQuantity) return;
+    public synchronized boolean repeatCraft(Player craftPlayer, int repetitions) {
+        if (repetitions <= 0 || repetitions > MAX_CRAFT_REPETITIONS
+                || !this.isCurrentCraftSession(craftPlayer))
+            return false;
 
-        this.ingredients.remove(id);
-        oldQuantity += quantity;
+        if (this.ingredients.isEmpty())
+            this.putLastCraftIngredients();
+        if (!this.hasAvailableIngredients(craftPlayer))
+            return false;
 
-        if (oldQuantity > 0) {
-            this.ingredients.put(id, oldQuantity);
-            SocketManager.GAME_SEND_EXCHANGE_MOVE_OK(player, 'O', "+", id + "|" + oldQuantity);
-        } else {
-            SocketManager.GAME_SEND_EXCHANGE_MOVE_OK(player, 'O', "-", id + "");
-        }
+        if (this.jobCraft == null)
+            this.jobCraft = new JobCraft(this, craftPlayer);
+        this.broke = false;
+        this.broken = false;
+        this.jobCraft.setAction(repetitions);
+        return true;
     }
 
-    public byte sizeList(Map<Player, ArrayList<Couple<Integer, Integer>>> list) {
-        byte size = 0;
-
-        for (ArrayList<Couple<Integer, Integer>> entry : list.values()) {
-            for (Couple<Integer, Integer> couple : entry) {
-                GameObject object = World.world.getGameObject(couple.first);
-                if (object != null) {
-                    ObjectTemplate objectTemplate = object.getTemplate();
-                    if (objectTemplate != null && objectTemplate.getId() != 7508) size++;
-                }
-            }
-        }
-        return size;
+    public synchronized void stopCraft() {
+        this.broken = true;
     }
 
-    public void putLastCraftIngredients() {
-        if (this.player == null || this.lastCraft == null || !this.ingredients.isEmpty()) return;
-
-        this.ingredients.clear();
-        this.ingredients.putAll(this.lastCraft);
-        this.ingredients.entrySet().stream().filter(e -> World.world.getGameObject(e.getKey()) != null)
-                .filter(e -> !(World.world.getGameObject(e.getKey()).getQuantity() < e.getValue()))
-                .forEach(e -> SocketManager.GAME_SEND_EXCHANGE_MOVE_OK(this.player, 'O', "+", e.getKey() + "|" + e.getValue()));
-    }
-
-    public void resetCraft() {
+    public synchronized void cancelCraft() {
+        this.broke = true;
+        this.broken = true;
+        this.isRepeat = false;
         this.ingredients.clear();
         this.lastCraft.clear();
         this.oldJobCraft = null;
         this.jobCraft = null;
     }
 
-    public boolean craftPublicMode(Player crafter, Player receiver, Map<Player, ArrayList<Couple<Integer, Integer>>> list) {
-        if (!this.isCraft) return false;
+    private boolean isCurrentCraftSession(Player craftPlayer) {
+        if (craftPlayer == null || craftPlayer != this.player)
+            return false;
+        ExchangeAction<?> exchangeAction = craftPlayer.getExchangeAction();
+        return exchangeAction != null
+                && exchangeAction.getType() == ExchangeAction.CRAFTING
+                && exchangeAction.getValue() == this;
+    }
 
-        this.player = crafter;
-        JobStat SM = this.player.getMetierBySkill(this.id);
-        boolean signed = false;
+    private boolean hasAvailableIngredients(Player craftPlayer) {
+        if (this.ingredients.isEmpty()
+                || this.selectedTemplateCount(this.ingredients, craftPlayer) > this.min)
+            return false;
+        for (Entry<Integer, Integer> ingredient : this.ingredients.entrySet()) {
+            GameObject object = craftPlayer.getItems().get(ingredient.getKey());
+            if (ingredient.getValue() == null || ingredient.getValue() <= 0
+                    || !this.isSelectableCraftIngredient(object)
+                    || object.getQuantity() < ingredient.getValue())
+                return false;
+        }
+        return true;
+    }
 
-        if (this.id == 1 || this.id == 113 || this.id == 115 || this.id == 116 || this.id == 117 || this.id == 118 || this.id == 119 || this.id == 120 || (this.id >= 163 && this.id <= 169)) {
-            this.SM = SM;
-            //craftMaging1(isRepeat, 0);
-            return true;
+    private int selectedTemplateCount(Map<Integer, Integer> selected,
+                                      Player craftPlayer) {
+        Set<Integer> templates = new HashSet<>();
+        for (Integer guid : selected.keySet()) {
+            GameObject object = craftPlayer.getItems().get(guid);
+            if (object != null && object.getTemplate() != null)
+                templates.add(object.getTemplate().getId());
+        }
+        return templates.size();
+    }
+
+    public synchronized boolean addIngredient(Player player, int id, int quantity) {
+        if (quantity == 0 || this.jobCraft != null || !this.isCurrentCraftSession(player))
+            return false;
+
+        int oldQuantity = this.ingredients.getOrDefault(id, 0);
+        int newQuantity;
+
+        if (quantity > 0) {
+            GameObject object = player.getItems().get(id);
+            if (!this.isSelectableCraftIngredient(object)
+                    || oldQuantity >= object.getQuantity())
+                return false;
+            if (oldQuantity == 0
+                    && !this.containsSelectedTemplate(object.getTemplate().getId())
+                    && this.selectedTemplateCount(this.ingredients, player) >= this.min)
+                return false;
+
+            long requested = (long) oldQuantity + quantity;
+            newQuantity = (int) Math.min(requested, object.getQuantity());
+        } else {
+            long removed = -(long) quantity;
+            if (removed > oldQuantity)
+                return false;
+            newQuantity = (int) (oldQuantity - removed);
         }
 
-        Map<Integer, Integer> items = new HashMap<>();
-
-        for (Entry<Player, ArrayList<Couple<Integer, Integer>>> entry : list.entrySet()) {
-            Player player = entry.getKey();
-
-            for (Couple<Integer, Integer> e : entry.getValue()) {
-                if (!player.hasItemGuid(e.first)) {
-                    SocketManager.GAME_SEND_Ec_PACKET(player, "EI");
-                    SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
-                    return false;
-                }
-
-                GameObject gameObject = World.world.getGameObject(e.first);
-                if (gameObject == null) {
-                    SocketManager.GAME_SEND_Ec_PACKET(player, "EI");
-                    SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
-                    return false;
-                }
-                if (gameObject.getQuantity() < e.second) {
-                    SocketManager.GAME_SEND_Ec_PACKET(player, "EI");
-                    SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
-                    return false;
-                }
-
-                int newQua = gameObject.getQuantity() - e.second;
-
-                if (newQua < 0)
-                    return false;
-
-                if (newQua == 0) {
-                    player.removeItem(e.first);
-                    World.world.removeGameObject(e.first);
-                    SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(player, e.first);
-                } else {
-                    gameObject.setQuantity(newQua);
-                    SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(player, gameObject);
-                }
-
-                if(items.containsKey(gameObject.getTemplate().getId())) {
-                    int template = gameObject.getTemplate().getId();
-                    int quantity = e.second + items.get(template);
-                    items.remove(template);
-                    items.put(template, quantity);
-                } else {
-                    items.put(gameObject.getTemplate().getId(), e.second);
-                }
-            }
+        if (newQuantity == oldQuantity)
+            return false;
+        if (newQuantity > 0) {
+            this.ingredients.put(id, newQuantity);
+            SocketManager.GAME_SEND_EXCHANGE_MOVE_OK(player, 'O', "+",
+                    id + "|" + newQuantity);
+        } else {
+            this.ingredients.remove(id);
+            SocketManager.GAME_SEND_EXCHANGE_MOVE_OK(player, 'O', "-", String.valueOf(id));
         }
+        return true;
+    }
 
-        SocketManager.GAME_SEND_Ow_PACKET(this.player);
+    private boolean containsSelectedTemplate(int templateId) {
+        for (Integer guid : this.ingredients.keySet()) {
+            GameObject selected = this.player.getItems().get(guid);
+            if (selected != null && selected.getTemplate() != null
+                    && selected.getTemplate().getId() == templateId)
+                return true;
+        }
+        return false;
+    }
 
+    public synchronized boolean putLastCraftIngredients() {
+        if (this.player == null || this.jobCraft != null || !this.ingredients.isEmpty()
+                || !this.isCurrentCraftSession(this.player))
+            return false;
 
-        //Rune de signature
-        if (items.containsKey(7508))
-            if (SM.get_lvl() == 100)
-                signed = true;
+        return this.restoreLastCraftIngredients(true);
+    }
 
-        items.remove(7508);
-        int template = World.world.getObjectByIngredientForJob(SM.getTemplate().getListBySkill(this.id), items);
+    synchronized boolean prepareNextRepeat(Player craftPlayer) {
+        if (!this.isCurrentCraftSession(craftPlayer) || this.broke || this.broken)
+            return false;
+        if (this.isMaging())
+            return this.selectedTemplateCount(this.ingredients, craftPlayer) <= this.min
+                    && this.hasAvailableIngredients(craftPlayer);
+        this.ingredients.clear();
+        return this.restoreLastCraftIngredients(false);
+    }
 
-        if (template == -1 || !SM.getTemplate().canCraft(this.id, template)) {
-            SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
-            receiver.send("EcEI");
-            SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "-");
-            items.clear();
+    synchronized boolean ownsJobCraft(JobCraft craft) {
+        return this.jobCraft == craft;
+    }
+
+    synchronized void completeSingleCraft(JobCraft craft) {
+        if (this.jobCraft != craft)
+            return;
+        this.oldJobCraft = craft;
+        this.jobCraft = null;
+    }
+
+    private boolean restoreLastCraftIngredients(boolean sendPackets) {
+        if (this.lastCraft.isEmpty()) {
+            this.ingredients.clear();
             return false;
         }
 
-        boolean success = JobConstant.getChanceByNbrCaseByLvl(SM.get_lvl(), items.size()) >= Formulas.getRandomValue(1, 100);
-
-        if (Logging.USE_LOG)
-            Logging.getInstance().write("SecureCraft", this.player.getName() + " à crafter avec " + (success ? "SUCCES" : "ECHEC") + " l'item " + template + " (" + World.world.getObjTemplate(template).getName() + ") pour " + receiver.getName());
-        if (!success) {
-            SocketManager.GAME_SEND_Ec_PACKET(this.player, "EF");
-            SocketManager.GAME_SEND_Ec_PACKET(receiver, "EF");
-            SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "-" + template);
-            SocketManager.GAME_SEND_Im_PACKET(this.player, "0118");
-        } else {
-            GameObject newObj = World.world.getObjTemplate(template).createNewItem(1, false);
-            if (signed) newObj.addTxtStat(988, this.player.getName());
-            int guid = this.addCraftObject(receiver, newObj);
-            if(guid == -1) guid = newObj.getGuid();
-            String stats = newObj.encodeStats();
-
-            this.player.send("ErKO+" + guid + "|1|" + template + "|" + stats);
-            receiver.send("ErKO+" + guid + "|1|" + template + "|" + stats);
-            this.player.send("EcK;" + template + ";T" + receiver.getName() + ";" + stats);
-            receiver.send("EcK;" + template + ";B" + crafter.getName() + ";" + stats);
-
-            SocketManager.GAME_SEND_Ow_PACKET(this.player);
-            SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "+" + template);
+        Map<Integer, Integer> restored = new TreeMap<>();
+        for (Entry<Integer, Integer> entry : this.lastCraft.entrySet()) {
+            GameObject object = this.player.getItems().get(entry.getKey());
+            if (!this.isSelectableCraftIngredient(object) || entry.getValue() == null
+                    || entry.getValue() <= 0 || object.getQuantity() < entry.getValue()) {
+                this.ingredients.clear();
+                return false;
+            }
+            restored.put(entry.getKey(), entry.getValue());
         }
 
-        int winXP = Formulas.calculXpWinCraft(SM.get_lvl(), this.ingredients.size()) * Config.rateJob;
-        if (SM.getTemplate().getId() == 28 && winXP == 1)
-            winXP = 10;
-        if (success) {
-            SM.addXp(this.player, winXP);
-            ArrayList<JobStat> SMs = new ArrayList<>();
-            SMs.add(SM);
-            SocketManager.GAME_SEND_JX_PACKET(this.player, SMs);
+        if (this.selectedTemplateCount(restored, this.player) > this.min) {
+            this.ingredients.clear();
+            return false;
         }
 
         this.ingredients.clear();
-        return success;
+        this.ingredients.putAll(restored);
+        if (sendPackets) {
+            for (Entry<Integer, Integer> entry : restored.entrySet())
+                SocketManager.GAME_SEND_EXCHANGE_MOVE_OK(this.player, 'O', "+",
+                        entry.getKey() + "|" + entry.getValue());
+        }
+        return this.hasAvailableIngredients(this.player);
+    }
+
+    public synchronized void resetCraft() {
+        this.cancelCraft();
+    }
+
+    /**
+     * Compatibility entry point used by older callers.  New secure-craft code
+     * consumes the richer execution result so it can distinguish a profession
+     * failure from invalid input or an unavailable database.
+     */
+    public boolean craftPublicMode(Player crafter, Player receiver,
+                                   Map<Player, ArrayList<Couple<Integer, Integer>>> list) {
+        CraftExecution execution = this.executePublicCraft(crafter, receiver, list);
+        return execution.isCompleted() && execution.isSuccess();
+    }
+
+    public synchronized CraftExecution executePublicCraft(
+            Player crafter, Player receiver,
+            Map<Player, ArrayList<Couple<Integer, Integer>>> list) {
+        this.lastPublicCommittedExecution = CraftExecution.invalid();
+        try {
+            if (crafter == null || receiver == null)
+                return CraftExecution.invalid();
+            Player first = compareInventoryLockOrder(crafter, receiver) <= 0
+                    ? crafter : receiver;
+            Player second = first == crafter ? receiver : crafter;
+            synchronized (first.getItems()) {
+                if (second == first)
+                    return this.executePublicCraftInternal(crafter, receiver, list);
+                synchronized (second.getItems()) {
+                    return this.executePublicCraftInternal(crafter, receiver, list);
+                }
+            }
+        } catch (RuntimeException | Error notificationFailure) {
+            return preserveCommittedExecution(this.lastPublicCommittedExecution,
+                    () -> {
+                        throw notificationFailure;
+                    });
+        }
+    }
+
+    public static int compareInventoryLockOrder(Player first, Player second) {
+        if (first == second)
+            return 0;
+        int byId = Integer.compare(first.getId(), second.getId());
+        if (byId != 0)
+            return byId;
+        return Integer.compare(System.identityHashCode(first),
+                System.identityHashCode(second));
+    }
+
+    private CraftExecution executePublicCraftInternal(
+            Player crafter, Player receiver,
+            Map<Player, ArrayList<Couple<Integer, Integer>>> list) {
+        if (!this.isCraft || crafter == null || receiver == null || list == null)
+            return CraftExecution.invalid();
+
+        this.player = crafter;
+        JobStat jobStat = crafter.getMetierBySkill(this.id);
+        if (jobStat == null || jobStat.getTemplate() == null
+                || jobStat.getJobActionBySkill(this.id) == null) {
+            sendPublicCraftError(crafter, receiver);
+            return CraftExecution.invalid();
+        }
+        this.SM = jobStat;
+
+        if (this.isEtherealRepair())
+            return this.executePublicEtherealRepair(crafter, receiver, list,
+                    jobStat);
+
+        if (this.isMaging()) {
+            this.lastMagingExecution = CraftExecution.invalid();
+            this.craftMaging(false, receiver, list);
+            return this.lastMagingExecution;
+        }
+
+        PublicCraftSelection selection = this.validatePublicCraftSelection(
+                crafter, receiver, list, jobStat);
+        if (selection == null) {
+            sendPublicCraftError(crafter, receiver);
+            return CraftExecution.invalid();
+        }
+
+        List<Integer> recipes = jobStat.getTemplate().getListBySkill(this.id);
+        int templateId = recipes == null ? -1
+                : World.world.getObjectByIngredientForJob(
+                        new ArrayList<>(recipes), selection.recipeItems);
+        ObjectTemplate resultTemplate = World.world.getObjTemplate(templateId);
+        if (templateId == -1 || resultTemplate == null
+                || !jobStat.getTemplate().canCraft(this.id, templateId)) {
+            sendPublicCraftError(crafter, receiver);
+            if (crafter.getCurMap() != null)
+                SocketManager.GAME_SEND_IO_PACKET_TO_MAP(crafter.getCurMap(),
+                        crafter.getId(), "-");
+            return CraftExecution.invalid();
+        }
+
+        int ingredientCount = selection.recipeItems.size();
+        int chance = JobConstant.getChanceByNbrCaseByLvl(
+                jobStat.get_lvl(), ingredientCount);
+        boolean success = jobStat.get_lvl() == 100 || this.id == 109
+                || chance >= Formulas.getRandomValue(1, 100);
+
+        GameObject result = null;
+        if (success) {
+            result = resultTemplate.createNewItem(1, false);
+            if (result == null) {
+                sendPublicCraftError(crafter, receiver);
+                return CraftExecution.invalid();
+            }
+            if (selection.signed) {
+                result.addTxtStat(Constant.STATS_SIGNATURE, crafter.getName());
+                persistQuantity(result);
+            }
+        }
+
+        if (!sourcesStillAvailable(selection.sources)) {
+            if (result != null)
+                removeUnownedCraftResult(result);
+            sendPublicCraftError(crafter, receiver);
+            return CraftExecution.invalid();
+        }
+        for (PublicCraftIngredient source : selection.sources.values())
+            consumePublicCraftIngredient(source);
+        if (result != null) {
+            synchronized (receiver.getItems()) {
+                receiver.getItems().put(result.getGuid(), result);
+            }
+            World.world.addGameObject(result);
+        }
+
+        long experience = (long) Formulas.calculXpWinCraft(jobStat.get_lvl(),
+                ingredientCount) * Config.rateJob;
+        if (jobStat.getTemplate().getId() == 28 && experience == 1)
+            experience = 10;
+        CraftExecution committed = CraftExecution.completed(success, experience);
+        this.lastPublicCommittedExecution = committed;
+
+        for (PublicCraftIngredient source : selection.sources.values())
+            notifyConsumedPublicCraftIngredient(source);
+        if (result != null)
+            SocketManager.GAME_SEND_OAKO_PACKET(receiver, result);
+
+        SocketManager.GAME_SEND_Ow_PACKET(crafter);
+        SocketManager.GAME_SEND_Ow_PACKET(receiver);
+        if (Logging.USE_LOG)
+            Logging.getInstance().write("SecureCraft", crafter.getName()
+                    + " a crafté avec " + (success ? "SUCCES" : "ECHEC")
+                    + " l'item " + templateId + " (" + resultTemplate.getName()
+                    + ") pour " + receiver.getName());
+
+        if (!success) {
+            SocketManager.GAME_SEND_Ec_PACKET(crafter, "EF");
+            SocketManager.GAME_SEND_Ec_PACKET(receiver, "EF");
+            if (crafter.getCurMap() != null)
+                SocketManager.GAME_SEND_IO_PACKET_TO_MAP(crafter.getCurMap(),
+                        crafter.getId(), "-" + templateId);
+            SocketManager.GAME_SEND_Im_PACKET(crafter, "0118");
+        } else {
+            String stats = result.encodeStats();
+            crafter.send("ErKO+" + result.getGuid() + "|1|" + templateId
+                    + "|" + stats);
+            receiver.send("ErKO+" + result.getGuid() + "|1|" + templateId
+                    + "|" + stats);
+            crafter.send("EcK;" + templateId + ";T" + receiver.getName()
+                    + ";" + stats);
+            receiver.send("EcK;" + templateId + ";B" + crafter.getName()
+                    + ";" + stats);
+            if (crafter.getCurMap() != null)
+                SocketManager.GAME_SEND_IO_PACKET_TO_MAP(crafter.getCurMap(),
+                        crafter.getId(), "+" + templateId);
+        }
+
+        return committed;
+    }
+
+    private PublicCraftSelection validatePublicCraftSelection(
+            Player crafter, Player receiver,
+            Map<Player, ArrayList<Couple<Integer, Integer>>> list,
+            JobStat jobStat) {
+        Map<Integer, PublicCraftIngredient> sources =
+                collectPublicCraftSources(crafter, receiver, list);
+        if (sources == null || sources.isEmpty())
+            return null;
+        Map<Integer, Integer> recipeItems = new HashMap<>();
+        int signatureQuantity = 0;
+
+        for (PublicCraftIngredient source : sources.values()) {
+            int templateId = source.object.getTemplate().getId();
+            if (templateId == 7508) {
+                try {
+                    signatureQuantity = Math.addExact(
+                            signatureQuantity, source.quantity);
+                } catch (ArithmeticException overflow) {
+                    return null;
+                }
+                continue;
+            }
+            try {
+                recipeItems.merge(templateId, source.quantity, Math::addExact);
+            } catch (ArithmeticException overflow) {
+                return null;
+            }
+        }
+
+        if (recipeItems.isEmpty()
+                || recipeItems.size() + (signatureQuantity == 1 ? 1 : 0) > this.min
+                || (signatureQuantity != 0
+                && (signatureQuantity != 1 || jobStat.get_lvl() != 100)))
+            return null;
+        return new PublicCraftSelection(sources, recipeItems,
+                signatureQuantity == 1);
+    }
+
+    private static Map<Integer, PublicCraftIngredient> collectPublicCraftSources(
+            Player crafter, Player receiver,
+            Map<Player, ArrayList<Couple<Integer, Integer>>> list) {
+        Map<Integer, PublicCraftIngredient> sources = new LinkedHashMap<>();
+        for (Entry<Player, ArrayList<Couple<Integer, Integer>>> ownerEntry
+                : list.entrySet()) {
+            Player owner = ownerEntry.getKey();
+            if ((owner != crafter && owner != receiver)
+                    || ownerEntry.getValue() == null)
+                return null;
+            for (Couple<Integer, Integer> offered : ownerEntry.getValue()) {
+                if (offered == null || offered.first == null
+                        || offered.second == null || offered.second <= 0)
+                    return null;
+                GameObject object = owner.getItems().get(offered.first);
+                if (!isUsablePublicCraftIngredient(object))
+                    return null;
+
+                PublicCraftIngredient source = sources.get(offered.first);
+                if (source != null && source.owner != owner)
+                    return null;
+                long combined = (long) offered.second
+                        + (source == null ? 0 : source.quantity);
+                if (combined > object.getQuantity() || combined > Integer.MAX_VALUE)
+                    return null;
+                sources.put(offered.first, new PublicCraftIngredient(
+                        owner, object, (int) combined));
+            }
+        }
+        return sources;
+    }
+
+    public static boolean isUsablePublicCraftIngredient(GameObject object) {
+        if (object == null || object.getTemplate() == null
+                || object.getQuantity() <= 0 || object.isAttach()
+                || object.getPosition() != Constant.ITEM_POS_NO_EQUIPED
+                || hasObvijevanAttachment(object)
+                || object.getTxtStat().containsKey(Constant.STATS_MIMIBIOTE))
+            return false;
+        return true;
+    }
+
+    public boolean isSelectableCraftIngredient(GameObject object) {
+        if (object == null || object.getTemplate() == null
+                || object.getQuantity() <= 0 || object.isAttach()
+                || object.getPosition() != Constant.ITEM_POS_NO_EQUIPED
+                || hasObvijevanAttachment(object))
+            return false;
+        // Forgemaging changes equipment without consuming its identity; a
+        // mimibiote appearance is therefore preserved by the detached-copy
+        // path. Ordinary crafting consumes its input and must reject cosmetics.
+        return this.isMaging() || isUsablePublicCraftIngredient(object);
+    }
+
+    static boolean hasObvijevanAttachment(GameObject object) {
+        if (object == null || object.getObvijevanPos() != 0
+                || object.getObvijevanLook() != 0)
+            return true;
+        for (int stat = 970; stat <= 974; stat++)
+            if (object.getStats().getEffects().containsKey(stat))
+                return true;
+        return false;
+    }
+
+    private CraftExecution executePublicEtherealRepair(
+            Player crafter, Player receiver,
+            Map<Player, ArrayList<Couple<Integer, Integer>>> list,
+            JobStat jobStat) {
+        Map<Integer, PublicCraftIngredient> sources =
+                collectPublicCraftSources(crafter, receiver, list);
+        if (jobStat.get_lvl() < 10 || sources == null || sources.size() != 2) {
+            sendPublicCraftError(crafter, receiver);
+            return CraftExecution.invalid();
+        }
+
+        PublicCraftIngredient weaponSource = null;
+        PublicCraftIngredient potionSource = null;
+        int weaponType = repairWeaponType(this.id);
+        for (PublicCraftIngredient source : sources.values()) {
+            GameObject object = source.object;
+            if (object.getTemplate().getType() == weaponType) {
+                if (weaponSource != null || source.quantity != 1
+                        || object.getQuantity() != 1) {
+                    sendPublicCraftError(crafter, receiver);
+                    return CraftExecution.invalid();
+                }
+                weaponSource = source;
+            } else if (isCompatibleRepairPotion(this.id,
+                    object.getTemplate().getId())) {
+                if (potionSource != null || source.quantity != 1) {
+                    sendPublicCraftError(crafter, receiver);
+                    return CraftExecution.invalid();
+                }
+                potionSource = source;
+            } else {
+                sendPublicCraftError(crafter, receiver);
+                return CraftExecution.invalid();
+            }
+        }
+        if (weaponSource == null || potionSource == null) {
+            sendPublicCraftError(crafter, receiver);
+            return CraftExecution.invalid();
+        }
+
+        GameObject weapon = weaponSource.object;
+        String durability = weapon.getTxtStat().get(Constant.STATS_RESIST);
+        int current;
+        try {
+            current = durability == null ? -1
+                    : Integer.parseInt(durability, 16);
+        } catch (NumberFormatException invalidDurability) {
+            current = -1;
+        }
+        int restored = restoredDurability(current,
+                weapon.getResistanceMax(weapon.getTemplate().getStrTemplate()),
+                potionSource.object.getStats().getEffect(702), 1);
+        if (restored < 0 || !sourcesStillAvailable(sources)) {
+            sendPublicCraftError(crafter, receiver);
+            return CraftExecution.invalid();
+        }
+
+        boolean success = repairSucceeds(jobStat.get_lvl(),
+                Formulas.getRandomValue(0, 100));
+        consumePublicCraftIngredient(potionSource);
+        if (success) {
+            weapon.getTxtStat().put(Constant.STATS_RESIST,
+                    Integer.toHexString(restored));
+            persistQuantity(weapon);
+        }
+
+        long experience = (long) Formulas.calculXpWinCraft(
+                jobStat.get_lvl(), 2) * Config.rateJob;
+        CraftExecution committed = CraftExecution.completed(success, experience);
+        this.lastPublicCommittedExecution = committed;
+
+        notifyConsumedPublicCraftIngredient(potionSource);
+        if (success) {
+            SocketManager.GAME_SEND_UPDATE_ITEM(weaponSource.owner, weapon);
+            String stats = weapon.encodeStats();
+            crafter.send("ErKO+" + weapon.getGuid() + "|1|"
+                    + weapon.getTemplate().getId() + "|" + stats);
+            receiver.send("ErKO+" + weapon.getGuid() + "|1|"
+                    + weapon.getTemplate().getId() + "|" + stats);
+            crafter.send("EcK;" + weapon.getTemplate().getId() + ";T"
+                    + receiver.getName() + ";" + stats);
+            receiver.send("EcK;" + weapon.getTemplate().getId() + ";B"
+                    + crafter.getName() + ";" + stats);
+        } else {
+            SocketManager.GAME_SEND_Ec_PACKET(crafter, "EF");
+            SocketManager.GAME_SEND_Ec_PACKET(receiver, "EF");
+            SocketManager.GAME_SEND_Im_PACKET(crafter, "0118");
+        }
+        if (crafter.getCurMap() != null)
+            SocketManager.GAME_SEND_IO_PACKET_TO_MAP(crafter.getCurMap(),
+                    crafter.getId(), (success ? "+" : "-")
+                            + weapon.getTemplate().getId());
+        SocketManager.GAME_SEND_Ow_PACKET(crafter);
+        SocketManager.GAME_SEND_Ow_PACKET(receiver);
+
+        return committed;
+    }
+
+    private static boolean sourcesStillAvailable(
+            Map<Integer, PublicCraftIngredient> sources) {
+        for (PublicCraftIngredient source : sources.values())
+            if (source.owner.getItems().get(source.object.getGuid())
+                    != source.object
+                    || !isUsablePublicCraftIngredient(source.object)
+                    || source.object.getQuantity() < source.quantity)
+                return false;
+        return true;
+    }
+
+    private static void consumePublicCraftIngredient(
+            PublicCraftIngredient source) {
+        int remaining = source.object.getQuantity() - source.quantity;
+        if (remaining == 0) {
+            source.owner.removeItem(source.object.getGuid());
+            World.world.removeGameObject(source.object.getGuid());
+        } else {
+            source.object.setQuantity(remaining);
+            persistQuantity(source.object);
+        }
+    }
+
+    private static void notifyConsumedPublicCraftIngredient(
+            PublicCraftIngredient source) {
+        if (source.owner.hasItemGuid(source.object.getGuid()))
+            SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(source.owner,
+                    source.object);
+        else
+            SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(source.owner,
+                    source.object.getGuid());
+    }
+
+    private static void logPostCommitFailure(Throwable failure) {
+        try {
+            Logging.getInstance().write("SecureCraft",
+                    "Notification post-commit ignorée: " + failure);
+        } catch (Throwable ignored) {
+            // The craft is already committed. Logging must never turn it into
+            // an invalid attempt and trigger a payment refund.
+        }
+    }
+
+    static CraftExecution preserveCommittedExecution(
+            CraftExecution committed, Runnable notification) {
+        try {
+            notification.run();
+        } catch (RuntimeException | Error notificationFailure) {
+            if (committed != null && committed.isCompleted()) {
+                logPostCommitFailure(notificationFailure);
+                return committed;
+            }
+            throw notificationFailure;
+        }
+        return committed == null ? CraftExecution.invalid() : committed;
+    }
+
+    private static void removeUnownedCraftResult(GameObject result) {
+        if (result == null || result.getGuid() <= 0)
+            return;
+        World.world.addGameObject(result);
+        World.world.removeGameObject(result.getGuid());
+    }
+
+    private static void sendPublicCraftError(Player crafter, Player receiver) {
+        if (crafter != null)
+            SocketManager.GAME_SEND_Ec_PACKET(crafter, "EI");
+        if (receiver != null && receiver != crafter)
+            SocketManager.GAME_SEND_Ec_PACKET(receiver, "EI");
+    }
+
+    private static final class PublicCraftIngredient {
+        private final Player owner;
+        private final GameObject object;
+        private final int quantity;
+
+        private PublicCraftIngredient(Player owner, GameObject object,
+                                      int quantity) {
+            this.owner = owner;
+            this.object = object;
+            this.quantity = quantity;
+        }
+    }
+
+    private static final class PublicCraftSelection {
+        private final Map<Integer, PublicCraftIngredient> sources;
+        private final Map<Integer, Integer> recipeItems;
+        private final boolean signed;
+
+        private PublicCraftSelection(
+                Map<Integer, PublicCraftIngredient> sources,
+                Map<Integer, Integer> recipeItems, boolean signed) {
+            this.sources = sources;
+            this.recipeItems = recipeItems;
+            this.signed = signed;
+        }
     }
 
     public boolean isMaging() {
@@ -277,160 +809,368 @@ public class JobAction {
     }
 
     synchronized void craft(boolean isRepeat) {
-        if (!this.isCraft) return;
+        if (!this.isCraft || !this.isCurrentCraftSession(this.player)
+                || this.broke || this.broken)
+            return;
 
         if (this.isMaging()) {
             this.craftMaging1(isRepeat, 1);
             return;
         }
 
-        Map<Integer, Integer> items = new HashMap<>();
-        //on retire les items mis en ingr�dients
-        for (Entry<Integer, Integer> e : this.ingredients.entrySet()) {
-            if (!this.player.hasItemGuid(e.getKey())) {
-                SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
-                return;
-            }
-
-            GameObject obj = World.world.getGameObject(e.getKey());
-
-            if (obj == null) {
-                SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
-                return;
-            }
-            if (obj.getQuantity() < e.getValue()) {
-                SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
-                return;
-            }
-
-            int newQua = obj.getQuantity() - e.getValue();
-            if (newQua < 0) return;
-
-            if (newQua == 0) {
-                this.player.removeItem(e.getKey());
-                World.world.removeGameObject(e.getKey());
-                SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(this.player, e.getKey());
-            } else {
-                obj.setQuantity(newQua);
-                SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(this.player, obj);
-            }
-
-            items.put(obj.getTemplate().getId(), e.getValue());
-        }
-
-        boolean signed = false;
-
-        if (items.containsKey(7508)) {
-            signed = true;
-            items.remove(7508);
-        }
-
-        SocketManager.GAME_SEND_Ow_PACKET(this.player);
-
-        boolean isUnjobSkill = this.getJobStat() == null;
-
-        if (!isUnjobSkill) {
-            JobStat SM = this.player.getMetierBySkill(this.id);
-            int templateId = World.world.getObjectByIngredientForJob(SM.getTemplate().getListBySkill(this.id), items);
-            //Recette non existante ou pas adapt� au m�tier
-            if (templateId == -1 || !SM.getTemplate().canCraft(this.id, templateId)) {
-                if (Logging.USE_LOG)
-                    Logging.getInstance().write("Craft", this.player.getName() + " à crafter une recette inconnu : " + templateId  +")");
-                player.sendMessage("Undefined craft (" + templateId + "), ingredients : (please contact an admin)");
-                for(Entry<Integer, Integer> entry : ingredients.entrySet())
-                    player.sendMessage(entry.getKey() + " x" + entry.getValue());
-                SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
-                SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "-");
+        try {
+            Map<Integer, Integer> selected = new TreeMap<>(this.ingredients);
+            JobStat jobStat = this.SM;
+            if (this.isEtherealRepair()) {
+                JobStat current = this.player.getMetierBySkill(this.id);
+                if (jobStat != null && current == jobStat && jobStat.get_lvl() >= 10
+                        && this.craftEtherealRepair(selected, jobStat)) {
+                    this.lastCraft.clear();
+                    this.lastCraft.putAll(selected);
+                } else {
+                    SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+                    this.broken = isRepeat;
+                }
                 this.ingredients.clear();
                 return;
             }
 
-            int chan = JobConstant.getChanceByNbrCaseByLvl(SM.get_lvl(), this.ingredients.size());
-            boolean success = chan >= Formulas.getRandomValue(0, 100);
-
-            if(chan == 99) {
-                success = chan * 2 >= Formulas.getRandomValue(0, 200);
+            Map<Integer, GameObject> selectedObjects = new LinkedHashMap<>();
+            Map<Integer, Integer> items = this.validateRecipeIngredients(
+                    selected, selectedObjects);
+            if (items == null) {
+                SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+                this.broken = isRepeat;
+                return;
             }
-            if(SM.get_lvl() == 100)
-                success = true;
 
-            switch (this.id) {
-                case 109:
+            Job recipeJob;
+            if (jobStat != null) {
+                JobStat current = this.player.getMetierBySkill(this.id);
+                if (current != jobStat)
+                    recipeJob = null;
+                else
+                    recipeJob = jobStat.getTemplate();
+            } else {
+                recipeJob = World.world.getMetier(this.id);
+            }
+
+            boolean signed = false;
+            Integer signatureQuantity = items.get(7508);
+            if (signatureQuantity != null) {
+                if (jobStat == null || jobStat.get_lvl() != 100
+                        || signatureQuantity != 1) {
+                    SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+                    this.ingredients.clear();
+                    this.broken = isRepeat;
+                    return;
+                }
+                items.remove(7508);
+                signed = true;
+            }
+            int recipeIngredientCount = items.size();
+            List<Integer> recipes = recipeJob == null ? null
+                    : recipeJob.getListBySkill(this.id);
+            int templateId = recipes == null ? -1
+                    : World.world.getObjectByIngredientForJob(
+                            new ArrayList<>(recipes), items);
+            ObjectTemplate resultTemplate = World.world.getObjTemplate(templateId);
+            if (templateId == -1 || resultTemplate == null || recipeJob == null
+                    || !recipeJob.canCraft(this.id, templateId)) {
+                SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+                if (this.player.getCurMap() != null)
+                    SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(),
+                            this.player.getId(), "-");
+                this.ingredients.clear();
+                this.broken = isRepeat;
+                return;
+            }
+
+            boolean success = true;
+            if (jobStat != null) {
+                int chance = JobConstant.getChanceByNbrCaseByLvl(
+                        jobStat.get_lvl(), recipeIngredientCount);
+                success = chance >= Formulas.getRandomValue(0, 100);
+                if (chance == 99)
+                    success = chance * 2 >= Formulas.getRandomValue(0, 200);
+                if (jobStat.get_lvl() == 100 || this.id == 109)
                     success = true;
-                    break;
             }
 
-            if (Logging.USE_LOG)
-                Logging.getInstance().write("Craft", this.player.getName() + " à crafter avec " + (success ? "SUCCES" : "ECHEC") + " l'item " + templateId + " (" + World.world.getObjTemplate(templateId).getName() + ")");
+            GameObject craftResult = null;
+            if (success) {
+                craftResult = this.createCraftResult(resultTemplate, signed);
+                if (craftResult == null) {
+                    SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+                    this.broken = isRepeat;
+                    return;
+                }
+            }
+
+            this.consumeRecipeIngredients(selected, selectedObjects);
+            SocketManager.GAME_SEND_Ow_PACKET(this.player);
+
             if (!success) {
                 SocketManager.GAME_SEND_Ec_PACKET(this.player, "EF");
-                SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "-" + templateId);
+                if (this.player.getCurMap() != null)
+                    SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(),
+                            this.player.getId(), "-" + templateId);
                 SocketManager.GAME_SEND_Im_PACKET(this.player, "0118");
             } else {
-                GameObject newObj = World.world.getObjTemplate(templateId).createNewItemWithoutDuplication(this.player.getItems().values(), 1, false);
-                if(newObj != null) {
-                    if (this.player.getItems().get(newObj.getGuid()) == null) {
-                        if (this.player.addItem(newObj, true, false))
-                            World.world.addGameObject(newObj);
-                    } else {
-                        SocketManager.GAME_SEND_UPDATE_OBJECT_DISPLAY_PACKET(this.player, newObj);
-                    }
-                    SocketManager.GAME_SEND_Ow_PACKET(this.player);
-                    if (signed) newObj.addTxtStat(988, this.player.getName());
-                    SocketManager.GAME_SEND_Em_PACKET(this.player, "KO+" + newObj.getGuid() + "|1|" + templateId + "|" + newObj.encodeStats().replace(";", "#"));
-                    SocketManager.GAME_SEND_Ec_PACKET(this.player, "K;" + templateId);
-                    SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "+" + templateId);
+                this.giveCraftResult(craftResult, resultTemplate);
+            }
+
+            if (jobStat != null) {
+                int winXP = Formulas.calculXpWinCraft(jobStat.get_lvl(),
+                        recipeIngredientCount) * Config.rateJob;
+                if (winXP > 0) {
+                    jobStat.addXp(this.player, winXP);
+                    SocketManager.GAME_SEND_JX_PACKET(this.player,
+                            new ArrayList<>(Collections.singletonList(jobStat)));
                 }
             }
 
-            int winXP = 0;
-            if (success)
-                winXP = Formulas.calculXpWinCraft(SM.get_lvl(), this.ingredients.size()) * Config.rateJob;
-            else if (!SM.getTemplate().isMaging())
-                winXP = Formulas.calculXpWinCraft(SM.get_lvl(), this.ingredients.size()) * Config.rateJob;
-
-            if (winXP > 0) {
-                SM.addXp(this.player, winXP);
-                ArrayList<JobStat> SMs = new ArrayList<>();
-                SMs.add(SM);
-                SocketManager.GAME_SEND_JX_PACKET(this.player, SMs);
+            this.lastCraft.clear();
+            this.lastCraft.putAll(selected);
+            this.ingredients.clear();
+        } finally {
+            if (!isRepeat) {
+                this.oldJobCraft = this.jobCraft;
+                this.jobCraft = null;
             }
+        }
+    }
+
+    Map<Integer, Integer> validateRecipeIngredients(
+            Map<Integer, Integer> selected,
+            Map<Integer, GameObject> selectedObjects) {
+        if (selected.isEmpty())
+            return null;
+
+        Map<Integer, Integer> items = new HashMap<>();
+        for (Entry<Integer, Integer> entry : selected.entrySet()) {
+            GameObject object = this.player.getItems().get(entry.getKey());
+            Integer quantity = entry.getValue();
+            if (quantity == null || quantity <= 0
+                    || !this.isSelectableCraftIngredient(object)
+                    || object.getQuantity() < quantity)
+                return null;
+            try {
+                items.merge(object.getTemplate().getId(), quantity, Math::addExact);
+            } catch (ArithmeticException exception) {
+                return null;
+            }
+            selectedObjects.put(entry.getKey(), object);
+        }
+        return items.size() <= this.min ? items : null;
+    }
+
+    private void consumeRecipeIngredients(Map<Integer, Integer> selected,
+                                          Map<Integer, GameObject> objects) {
+        for (Entry<Integer, Integer> entry : selected.entrySet()) {
+            GameObject object = objects.get(entry.getKey());
+            int remaining = object.getQuantity() - entry.getValue();
+            if (remaining == 0) {
+                this.player.removeItem(object.getGuid());
+                World.world.removeGameObject(object.getGuid());
+                SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(this.player,
+                        object.getGuid());
+            } else {
+                object.setQuantity(remaining);
+                persistQuantity(object);
+                SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(this.player, object);
+            }
+        }
+    }
+
+    private GameObject createCraftResult(ObjectTemplate template, boolean signed) {
+        GameObject result = signed
+                ? template.createNewItem(1, false)
+                : template.createNewItemWithoutDuplication(
+                        this.player.getItems().values(), 1, false);
+        if (result == null)
+            return null;
+        if (signed) {
+            result.addTxtStat(Constant.STATS_SIGNATURE, this.player.getName());
+            ObjectData objectData = DatabaseManager.get(ObjectData.class);
+            if (objectData != null)
+                objectData.update(result);
+        }
+        return result;
+    }
+
+    private void giveCraftResult(GameObject result, ObjectTemplate template) {
+        if (this.player.getItems().get(result.getGuid()) == null) {
+            if (this.player.addItem(result, true, false))
+                World.world.addGameObject(result);
         } else {
-            int templateId = World.world.getObjectByIngredientForJob(World.world.getMetier(this.id).getListBySkill(this.id), items);
+            persistQuantity(result);
+            SocketManager.GAME_SEND_UPDATE_OBJECT_DISPLAY_PACKET(this.player, result);
+        }
+        SocketManager.GAME_SEND_Ow_PACKET(this.player);
+        SocketManager.GAME_SEND_Em_PACKET(this.player,
+                "KO+" + result.getGuid() + "|1|" + template.getId() + "|"
+                        + result.encodeStats().replace(";", "#"));
+        SocketManager.GAME_SEND_Ec_PACKET(this.player, "K;" + template.getId());
+        if (this.player.getCurMap() != null)
+            SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(),
+                    this.player.getId(), "+" + template.getId());
+    }
 
-            if (templateId == -1 || !World.world.getMetier(this.id).canCraft(this.id, templateId)) {
-                SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
-                SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "-");
-                this.ingredients.clear();
-                return;
-            }
+    public static boolean isEtherealRepairSkill(int skillId) {
+        return skillId >= 142 && skillId <= 149;
+    }
 
-            GameObject newObj = World.world.getObjTemplate(templateId).createNewItemWithoutDuplication(this.player.getItems().values(), 1, false);
+    private boolean isEtherealRepair() {
+        return isEtherealRepairSkill(this.id);
+    }
 
-            if(newObj != null) {
-                if (this.player.getItems().get(newObj.getGuid()) == null) {
-                    if (this.player.addItem(newObj, true, false))
-                        World.world.addGameObject(newObj);
-                } else {
-                    SocketManager.GAME_SEND_UPDATE_OBJECT_DISPLAY_PACKET(this.player, newObj);
-                }
+    static int repairWeaponType(int skillId) {
+        switch (skillId) {
+            case 142:
+                return Constant.ITEM_TYPE_DAGUES;
+            case 143:
+                return Constant.ITEM_TYPE_HACHE;
+            case 144:
+                return Constant.ITEM_TYPE_MARTEAU;
+            case 145:
+                return Constant.ITEM_TYPE_EPEE;
+            case 146:
+                return Constant.ITEM_TYPE_PELLE;
+            case 147:
+                return Constant.ITEM_TYPE_BATON;
+            case 148:
+                return Constant.ITEM_TYPE_BAGUETTE;
+            case 149:
+                return Constant.ITEM_TYPE_ARC;
+            default:
+                return -1;
+        }
+    }
 
-                if (signed) newObj.addTxtStat(988, this.player.getName());
+    static boolean isCompatibleRepairPotion(int skillId, int templateId) {
+        if (skillId >= 142 && skillId <= 146)
+            return templateId == 2529 || templateId == 2538 || templateId == 2541;
+        if (skillId >= 147 && skillId <= 149)
+            return templateId == 2539 || templateId == 2540 || templateId == 2543;
+        return false;
+    }
 
-                SocketManager.GAME_SEND_Ow_PACKET(this.player);
-                SocketManager.GAME_SEND_Em_PACKET(this.player, "KO+" + newObj.getGuid() + "|1|" + templateId + "|" + newObj.encodeStats().replace(";", "#"));
-                SocketManager.GAME_SEND_Ec_PACKET(this.player, "K;" + templateId);
-                SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "+" + templateId);
+    static int restoredDurability(int current, int maximum, int potionBonus,
+                                  int potionQuantity) {
+        if (current < 0 || maximum <= 0 || current >= maximum
+                || potionBonus <= 0 || potionQuantity <= 0)
+            return -1;
+        long restored = (long) current + (long) potionBonus * potionQuantity;
+        return (int) Math.min(restored, maximum);
+    }
+
+    static boolean repairSucceeds(int jobLevel, int roll) {
+        return roll >= 0 && roll <= 100
+                && JobConstant.getChanceByNbrCaseByLvl(jobLevel, 2) >= roll;
+    }
+
+    private boolean craftEtherealRepair(Map<Integer, Integer> selected,
+                                         JobStat jobStat) {
+        if (selected.size() != 2)
+            return false;
+
+        int weaponType = repairWeaponType(this.id);
+        GameObject weapon = null;
+        GameObject potion = null;
+        int potionQuantity = 0;
+
+        for (Entry<Integer, Integer> entry : selected.entrySet()) {
+            GameObject object = this.player.getItems().get(entry.getKey());
+            int quantity = entry.getValue() == null ? 0 : entry.getValue();
+            if (object == null || object.getTemplate() == null
+                    || quantity <= 0 || object.isAttach()
+                    || object.getPosition() != Constant.ITEM_POS_NO_EQUIPED
+                    || object.getObvijevanLook() != 0
+                    || object.getQuantity() < quantity)
+                return false;
+
+            if (object.getTemplate().getType() == weaponType) {
+                // Durability is stored on the GameObject, not per unit. Mutating a
+                // stacked weapon would therefore repair every unit for one potion.
+                if (weapon != null || quantity != 1 || object.getQuantity() != 1)
+                    return false;
+                weapon = object;
+            } else if (isCompatibleRepairPotion(this.id,
+                    object.getTemplate().getId())) {
+                if (potion != null || quantity != 1)
+                    return false;
+                potion = object;
+                potionQuantity = quantity;
+            } else {
+                return false;
             }
         }
-        this.lastCraft.clear();
-        this.lastCraft.putAll(this.ingredients);
-        this.ingredients.clear();
 
-        if(!isRepeat) {
-            this.oldJobCraft = this.jobCraft;
-            this.jobCraft = null;
+        if (weapon == null || potion == null)
+            return false;
+        String durability = weapon.getTxtStat().get(Constant.STATS_RESIST);
+        if (durability == null)
+            return false;
+
+        int current;
+        try {
+            current = Integer.parseInt(durability, 16);
+        } catch (NumberFormatException exception) {
+            return false;
         }
+        int maximum = weapon.getResistanceMax(weapon.getTemplate().getStrTemplate());
+        int potionBonus = potion.getStats().getEffect(702);
+        int restored = restoredDurability(current, maximum, potionBonus,
+                potionQuantity);
+        if (restored < 0)
+            return false;
+
+        if (potion.getQuantity() == 1) {
+            this.player.removeItem(potion.getGuid());
+            World.world.removeGameObject(potion.getGuid());
+            SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(this.player, potion.getGuid());
+        } else {
+            potion.setQuantity(potion.getQuantity() - 1);
+            persistQuantity(potion);
+            SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(this.player, potion);
+        }
+        SocketManager.GAME_SEND_Ow_PACKET(this.player);
+
+        boolean success = repairSucceeds(jobStat.get_lvl(),
+                Formulas.getRandomValue(0, 100));
+        if (success) {
+            weapon.getTxtStat().put(Constant.STATS_RESIST,
+                    Integer.toHexString(restored));
+            ObjectData objectData = DatabaseManager.get(ObjectData.class);
+            if (objectData != null)
+                objectData.update(weapon);
+
+            SocketManager.GAME_SEND_UPDATE_ITEM(this.player, weapon);
+            SocketManager.GAME_SEND_Em_PACKET(this.player,
+                    "KO+" + weapon.getGuid() + "|1|" + weapon.getTemplate().getId()
+                            + "|" + weapon.encodeStats().replace(";", "#"));
+            SocketManager.GAME_SEND_Ec_PACKET(this.player,
+                    "K;" + weapon.getTemplate().getId());
+            if (this.player.getCurMap() != null)
+                SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(),
+                        this.player.getId(), "+" + weapon.getTemplate().getId());
+        } else {
+            SocketManager.GAME_SEND_Ec_PACKET(this.player, "EF");
+            SocketManager.GAME_SEND_Im_PACKET(this.player, "0118");
+            if (this.player.getCurMap() != null)
+                SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(),
+                        this.player.getId(), "-" + weapon.getTemplate().getId());
+        }
+
+        int winXP = Formulas.calculXpWinCraft(jobStat.get_lvl(), 2)
+                * Config.rateJob;
+        if (winXP > 0) {
+            jobStat.addXp(this.player, winXP);
+            SocketManager.GAME_SEND_JX_PACKET(this.player,
+                    new ArrayList<>(Collections.singletonList(jobStat)));
+        }
+        return true;
     }
 
     public static float coefExo = 0.25f;
@@ -438,8 +1178,9 @@ public class JobAction {
     /* ********FM TOUT POURRI*************/
     private synchronized boolean craftMaging(boolean isRepeat, Player receiver, Map<Player, ArrayList<Couple<Integer, Integer>>> items) {
         boolean isSigningRune = false;
-        GameObject objectFm = null, signingRune = null, runeOrPotion = null;
-        int lvlElementRune = 0, statId = -1, lvlQuaStatsRune = 0, statsAdd = 0, deleteID = -1, poid = 0, idRune = 0;
+        GameObject objectFm = null, sourceObjectFm = null, signingRune = null, runeOrPotion = null;
+        Player sourceOwner = null;
+        int lvlElementRune = 0, statId = -1, lvlQuaStatsRune = 0, statsAdd = 0, poid = 0, idRune = 0;
         boolean bonusRune = false;
         String statsObjectFm = "-1";
 
@@ -449,25 +1190,43 @@ public class JobAction {
         if(items != null) {
             for(Entry<Player, ArrayList<Couple<Integer, Integer>>> entry : items.entrySet()) {
                 for(Couple<Integer, Integer> couple : entry.getValue()) {
-                    ingredients.put(couple.first, couple.second);
+                    if (couple == null || couple.second == null
+                            || couple.second <= 0) {
+                        SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+                        return false;
+                    }
+                    try {
+                        ingredients.merge(couple.first, couple.second,
+                                Math::addExact);
+                    } catch (ArithmeticException overflow) {
+                        SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+                        return false;
+                    }
                 }
             }
         }
 
+        if (!validateMagingIngredients(ingredients, receiver)) {
+            SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+            if (receiver != null)
+                SocketManager.GAME_SEND_Ec_PACKET(receiver, "EI");
+            return false;
+        }
+
         for (int id : ingredients.keySet()) {
-            GameObject object = World.world.getGameObject(id);
+            GameObject object = findMagingObject(id, this.player, receiver);
 
             if(object == null) {
-                if(!this.player.hasItemGuid(id) || (secure && !this.player.hasItemGuid(id) && !receiver.hasItemGuid(id))) {
-                    SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+                SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+                if (this.player.getCurMap() != null)
                     SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "-");
-                    ingredients.clear();
-                    return false;
-                }
+                ingredients.clear();
+                return false;
             }
 
             int template = object.getTemplate().getId();
-            if (object.getTemplate().getType() == 78)
+            if (object.getTemplate().getType() == Constant.ITEM_TYPE_RUNE_FORGEMAGIE
+                    || isElementalMagingPotion(template))
                 idRune = id;
 
             //region gros switch rune
@@ -1017,23 +1776,13 @@ public class JobAction {
                 default:
                     int type = object.getTemplate().getType();
                     if ((type >= 1 && type <= 11) || (type >= 16 && type <= 22) || type == 81 || type == 102 || type == 114 || object.getTemplate().getPACost() > 0) {
-                        final Player player = this.player.hasItemGuid(object.getGuid()) ? this.player : receiver;
-                        objectFm = object;
-                        SocketManager.GAME_SEND_EXCHANGE_OTHER_MOVE_OK_FM(player.getGameClient(), 'O', "+", objectFm.getGuid() + "|" + 1);
-                        deleteID = id;
-                        GameObject newObj = objectFm.getClone(1, true); // Cr�ation d'un clone avec un nouveau identifiant
-
-                        if (objectFm.getQuantity() > 1) { // S'il y avait plus d'un objet
-                            int newQuant = objectFm.getQuantity() - 1; // On supprime celui que l'on a ajout�
-                            objectFm.setQuantity(newQuant);
-                            SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(player, objectFm);
-                        } else {
-                            World.world.removeGameObject(id);
-
-                            player.removeItem(id);
-                            SocketManager.GAME_SEND_DELETE_STATS_ITEM_FM(player, id);
+                        final Player owner = this.player.hasItemGuid(object.getGuid()) ? this.player : receiver;
+                        if (owner == null || sourceObjectFm != null) {
+                            sourceObjectFm = null;
+                            break;
                         }
-                        objectFm = newObj; // Tout neuf avec un nouveau identifiant
+                        sourceObjectFm = object;
+                        sourceOwner = owner;
                         break;
                     }
             }
@@ -1045,28 +1794,33 @@ public class JobAction {
         if (poid2 > 0.0)
             poid = statsAdd * ((int) poid2);
 
-        if (SM == null || objectFm == null || runeOrPotion == null) {
-            if (objectFm != null) {
-                World.world.addGameObject(objectFm);
-                this.player.addItem(objectFm, true);
-            }
-
+        if (SM == null || sourceObjectFm == null || sourceOwner == null || runeOrPotion == null) {
             if(receiver != null)
                 SocketManager.GAME_SEND_Ec_PACKET(receiver, "EI");
             SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
-            SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "-");
+            if (this.player.getCurMap() != null)
+                SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "-");
 
             ingredients.clear();
             return false;
         }
-        if (deleteID != -1) {
-            this.ingredients.remove(deleteID);
+        objectFm = createDetachedMagingCopy(sourceObjectFm);
+        if (objectFm == null) {
+            SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+            return false;
         }
+        Map<Integer, String> preservedTextStats = new HashMap<>(
+                objectFm.getTxtStat());
+        Map<Integer, Integer> preservedSoulStats = new HashMap<>(
+                objectFm.getSoulStat());
+        List<String> preservedSpellStats = new ArrayList<>(
+                objectFm.getSpellStats());
 
         final ObjectTemplate template = objectFm.getTemplate();
         ArrayList<Integer> chances = new ArrayList<>();
 
         int chance, lvlJob = SM.get_lvl(), currentWeightTotal = 1, pwrPerte;
+        int winXP = 0;
         int objTemplateID = template.getId();
         String statStringObj = objectFm.encodeStats();
 
@@ -1155,13 +1909,8 @@ public class JobAction {
                 successC = true;
 
         if (successC || successN) {
-            int winXP = Formulas.calculXpWinFm(objectFm.getTemplate().getLevel(), poid) * Config.rateJob;
-            if (winXP > 0) {
-                SM.addXp(this.player, winXP);
-                ArrayList<JobStat> SMs = new ArrayList<>();
-                SMs.add(SM);
-                SocketManager.GAME_SEND_JX_PACKET(this.player, SMs);
-            }
+            winXP = Formulas.calculXpWinFm(objectFm.getTemplate().getLevel(), poid)
+                    * Config.rateJob;
         }
         //endregion
 
@@ -1243,19 +1992,6 @@ public class JobAction {
                 }
             }
 
-            String data = objectFm.getGuid() + "|1|" + objectFm.getTemplate().getId() + "|" + objectFm.encodeStats();
-
-            if (!this.isRepeat)
-                this.reConfigingRunes = -1;
-            if (this.reConfigingRunes != 0 || this.broken)
-                if(receiver == null)
-                    SocketManager.GAME_SEND_EXCHANGE_MOVE_OK_FM(this.player, 'O', "+", data);
-
-            this.data = data;
-            SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "+" + objTemplateID);
-            if(!secure) {
-                SocketManager.GAME_SEND_Ec_PACKET(this.player, "K;" + objTemplateID);
-            }
         }
         //endregion
         //region Succès neutre
@@ -1315,22 +2051,6 @@ public class JobAction {
                 objectFm.parseStringToStats(statsStr);
             }
 
-            String data = objectFm.getGuid() + "|1|" + objectFm.getTemplate().getId() + "|" + objectFm.encodeStats();
-            if (!this.isRepeat)
-                this.reConfigingRunes = -1;
-            if (this.reConfigingRunes != 0 || this.broken)
-                if(receiver == null)
-                    SocketManager.GAME_SEND_EXCHANGE_MOVE_OK_FM(this.player, 'O', "+", data);
-
-            this.data = data;
-            SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "+" + objTemplateID);
-
-            if (pwrPerte > 0) {
-                SocketManager.GAME_SEND_Ec_PACKET(this.player, "EF");
-                SocketManager.GAME_SEND_Im_PACKET(this.player, "0194");
-            } else {
-                SocketManager.GAME_SEND_Ec_PACKET(this.player, "K;" + objTemplateID);
-            }
         }
         //endregion
         //region Echec critique
@@ -1344,43 +2064,81 @@ public class JobAction {
                 pwrPerte = currentWeightTotal - currentTotalWeigthBase(statsStr, objectFm);
             }
 
-            String data = objectFm.getGuid() + "|1|" + objectFm.getTemplate().getId() + "|" + objectFm.encodeStats();
-            if (!this.isRepeat)
-                this.reConfigingRunes = -1;
-            if (this.reConfigingRunes != 0 || this.broken)
-                if(receiver == null)
-                    SocketManager.GAME_SEND_EXCHANGE_MOVE_OK_FM(this.player, 'O', "+", data);
-
-            this.data = data;
-            SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "-" + objTemplateID);
-            SocketManager.GAME_SEND_Ec_PACKET(this.player, "EF");
-
-            if (pwrPerte > 0)
-                SocketManager.GAME_SEND_Im_PACKET(this.player, "0117");
-            else
-                SocketManager.GAME_SEND_Im_PACKET(this.player, "0183");
         }
         //endregion
 
-        objectFm.setPuit((objectFm.getPuit() + pwrPerte) - poid);
+        restoreMagingMetadata(objectFm, preservedTextStats,
+                preservedSoulStats, preservedSpellStats,
+                isSigningRune && (successC || successN)
+                        ? this.player.getName() : null);
+        objectFm.setPuit(Math.max(0,
+                (objectFm.getPuit() + pwrPerte) - poid));
         int newQuantity = ingredients.get(idRune) == null ? 0 : ingredients.get(idRune) - 1;
 
-        if (objectFm != null) {
-            World.world.addGameObject(objectFm);
-            if(receiver == null) {
-                this.player.addItem(objectFm, true);
+        Player runeOwner = findMagingOwner(runeOrPotion, this.player, receiver);
+        Player signingOwner = signingRune == null ? null
+                : findMagingOwner(signingRune, this.player, receiver);
+        Player resultOwner = receiver == null ? this.player : receiver;
+        if (!commitMagingResult(resultOwner, sourceOwner, sourceObjectFm,
+                runeOwner, runeOrPotion, signingOwner, signingRune, objectFm)) {
+            SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+            if (receiver != null)
+                SocketManager.GAME_SEND_Ec_PACKET(receiver, "EI");
+            this.broken = isRepeat;
+            return false;
+        }
+
+        if (secure) {
+            CraftExecution committed = CraftExecution.completed(
+                    successC || successN, winXP);
+            this.lastMagingExecution = committed;
+            this.lastPublicCommittedExecution = committed;
+        }
+        notifyMagingCommit(resultOwner, sourceOwner, sourceObjectFm,
+                runeOwner, runeOrPotion, signingOwner, signingRune, objectFm);
+
+        if (winXP > 0 && !secure) {
+            SM.addXp(this.player, winXP);
+            ArrayList<JobStat> SMs = new ArrayList<>();
+            SMs.add(SM);
+            SocketManager.GAME_SEND_JX_PACKET(this.player, SMs);
+        }
+
+        String resultData = objectFm.getGuid() + "|1|"
+                + objectFm.getTemplate().getId() + "|" + objectFm.encodeStats();
+        if (!this.isRepeat)
+            this.reConfigingRunes = -1;
+        if ((this.reConfigingRunes != 0 || this.broken) && receiver == null)
+            SocketManager.GAME_SEND_EXCHANGE_MOVE_OK_FM(this.player, 'O', "+",
+                    resultData);
+        this.data = resultData;
+
+        if (this.player.getCurMap() != null)
+            SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(),
+                    this.player.getId(), (successC || successN ? "+" : "-")
+                            + objTemplateID);
+        if (successC) {
+            if (!secure)
+                SocketManager.GAME_SEND_Ec_PACKET(this.player, "K;" + objTemplateID);
+        } else if (successN) {
+            if (pwrPerte > 0) {
+                SocketManager.GAME_SEND_Ec_PACKET(this.player, "EF");
+                SocketManager.GAME_SEND_Im_PACKET(this.player, "0194");
             } else {
-                receiver.addItem(objectFm, true);
+                SocketManager.GAME_SEND_Ec_PACKET(this.player, "K;" + objTemplateID);
             }
+        } else {
+            SocketManager.GAME_SEND_Ec_PACKET(this.player, "EF");
+            SocketManager.GAME_SEND_Im_PACKET(this.player,
+                    pwrPerte > 0 ? "0117" : "0183");
         }
 
         if(receiver == null) {
-            this.decrementObjectQuantity(this.player, signingRune);
-            this.decrementObjectQuantity(this.player, runeOrPotion);
-            this.player.send("EmKO-" + objectFm.getGuid() + "|1|");
+            this.player.send("EmKO-" + sourceObjectFm.getGuid() + "|1|");
             this.ingredients.clear();
             this.player.send("EMKO+" + objectFm.getGuid() + "|1");
-            this.ingredients.put(objectFm.getGuid(), 1);
+            this.ingredients.putAll(nextMagingIngredients(objectFm.getGuid(),
+                    idRune, newQuantity + 1));
 
             if (newQuantity >= 1) {
                 this.player.send("EMKO+" + idRune + "|" + newQuantity);
@@ -1389,27 +2147,17 @@ public class JobAction {
                 this.player.send("EMKO-" + idRune);
             }
         } else {
-            if(items != null) {
-                for(Entry<Player, ArrayList<Couple<Integer, Integer>>> entry : items.entrySet()) {
-                    final Player player = entry.getKey();
-                    for(Couple<Integer, Integer> couple : entry.getValue()) {
-                        if(signingRune != null && signingRune.getGuid() == couple.first)
-                            this.decrementObjectQuantity(player, signingRune);
-                        if(runeOrPotion.getGuid() == couple.first)
-                            this.decrementObjectQuantity(player, runeOrPotion);
-                        //player.send("EMKO-" + couple.first);
-
-                    }
-                }
-            }
-
             String stats = objectFm.encodeStats();
-            this.player.send("ErKO+" + objectFm.getGuid() + "|1|" + template + "|" + stats);
-            receiver.send("ErKO+" + objectFm.getGuid() + "|1|" + template + "|" + stats);
-            this.player.send("EcK;" + template + ";T" + receiver.getName() + ";" + stats);
-            receiver.send("EcK;" + template + ";B" + this.player.getName() + ";" + stats);
-
-            if(!successC) {
+            this.player.send("ErKO+" + objectFm.getGuid() + "|1|"
+                    + objTemplateID + "|" + stats);
+            receiver.send("ErKO+" + objectFm.getGuid() + "|1|"
+                    + objTemplateID + "|" + stats);
+            if (successC || successN) {
+                this.player.send("EcK;" + objTemplateID + ";T"
+                        + receiver.getName() + ";" + stats);
+                receiver.send("EcK;" + objTemplateID + ";B"
+                        + this.player.getName() + ";" + stats);
+            } else {
                 receiver.send("EcEF");
             }
         }
@@ -1419,21 +2167,248 @@ public class JobAction {
 
         SocketManager.GAME_SEND_Ow_PACKET(this.player);
         if (!isRepeat) this.setJobCraft(null);
+        return !secure || successC || successN;
+    }
+
+    private boolean validateMagingIngredients(Map<Integer, Integer> selected,
+                                              Player receiver) {
+        if (this.SM == null || this.SM.getTemplate() == null
+                || this.player == null
+                || this.player.getMetierBySkill(this.id) != this.SM
+                || selected == null || selected.isEmpty())
+            return false;
+
+        int weapons = 0, consumables = 0, signatures = 0;
+        boolean elementalPotion = false;
+        GameObject weapon = null;
+        for (Entry<Integer, Integer> entry : selected.entrySet()) {
+            if (entry.getKey() == null)
+                return false;
+            GameObject object = findMagingObject(entry.getKey(), this.player,
+                    receiver);
+            Integer selectedQuantity = entry.getValue();
+            Player owner = findMagingOwner(object, this.player, receiver);
+            if (object == null || object.getTemplate() == null || owner == null
+                    || selectedQuantity == null || selectedQuantity <= 0
+                    || object.getQuantity() < selectedQuantity
+                    || object.isAttach()
+                    || object.getPosition() != Constant.ITEM_POS_NO_EQUIPED
+                    || hasObvijevanAttachment(object))
+                return false;
+
+            int templateId = object.getTemplate().getId();
+            int type = object.getTemplate().getType();
+            if (this.isAvailableObject(this.SM.getTemplate().getId(), type)) {
+                if (selectedQuantity != 1 || ++weapons > 1)
+                    return false;
+                weapon = object;
+            } else if (type == Constant.ITEM_TYPE_RUNE_FORGEMAGIE) {
+                if (++consumables > 1)
+                    return false;
+            } else if (isElementalMagingPotion(templateId)) {
+                elementalPotion = true;
+                if (++consumables > 1)
+                    return false;
+            } else if (templateId == 7508) {
+                if (selectedQuantity != 1 || this.SM.get_lvl() != 100
+                        || ++signatures > 1)
+                    return false;
+            } else {
+                return false;
+            }
+        }
+        return weapons == 1 && consumables == 1
+                && isMagingLevelSufficient(this.SM.get_lvl(),
+                weapon.getTemplate().getLevel())
+                && (!elementalPotion
+                || isWeaponMagingJob(this.SM.getTemplate().getId())
+                && hasNeutralMagingDamage(weapon));
+    }
+
+    static boolean hasNeutralMagingDamage(GameObject object) {
+        if (object == null)
+            return false;
+        for (SpellEffect effect : object.getEffects())
+            if (effect.getEffectID() == 100)
+                return true;
+        return false;
+    }
+
+    static Map<Integer, Integer> nextMagingIngredients(int weaponGuid,
+                                                        int consumableGuid,
+                                                        int selectedQuantity) {
+        Map<Integer, Integer> next = new TreeMap<>();
+        next.put(weaponGuid, 1);
+        int remaining = selectedQuantity - 1;
+        if (consumableGuid > 0 && remaining > 0)
+            next.put(consumableGuid, remaining);
+        return next;
+    }
+
+    static GameObject createDetachedMagingCopy(GameObject source) {
+        if (source == null || source.getTemplate() == null)
+            return null;
+        Map<Integer, Integer> effects = new HashMap<>(source.getStats().getEffects());
+        Stats stats = new Stats(effects);
+        ArrayList<SpellEffect> spellEffects = new ArrayList<>();
+        for (SpellEffect effect : source.getEffects())
+            spellEffects.add(effect.clone());
+        GameObject copy = new GameObject(-1, source.getTemplate().getId(), 1,
+                Constant.ITEM_POS_NO_EQUIPED, stats, spellEffects,
+                new HashMap<>(source.getSoulStat()),
+                new HashMap<>(source.getTxtStat()), source.getPuit());
+        copy.getSpellStats().addAll(source.getSpellStats());
+        return copy;
+    }
+
+    static void restoreMagingMetadata(GameObject object,
+                                      Map<Integer, String> textStats,
+                                      Map<Integer, Integer> soulStats,
+                                      List<String> spellStats,
+                                      String newSignature) {
+        object.getTxtStat().clear();
+        object.getTxtStat().putAll(textStats);
+        if (newSignature != null)
+            object.getTxtStat().put(Constant.STATS_CHANGE_BY, newSignature);
+        object.getSoulStat().clear();
+        object.getSoulStat().putAll(soulStats);
+        object.getSpellStats().clear();
+        object.getSpellStats().addAll(spellStats);
+    }
+
+    private static Player findMagingOwner(GameObject object, Player first,
+                                           Player second) {
+        if (object == null)
+            return null;
+        if (first != null && first.hasItemGuid(object.getGuid()))
+            return first;
+        if (second != null && second.hasItemGuid(object.getGuid()))
+            return second;
+        return null;
+    }
+
+    private static GameObject findMagingObject(int guid, Player first,
+                                               Player second) {
+        GameObject object = first == null ? null : first.getItems().get(guid);
+        if (object == null && second != null)
+            object = second.getItems().get(guid);
+        return object;
+    }
+
+    /**
+     * Persists the finished item before debiting any source.  Inserting the
+     * final state (instead of inserting a blank clone and updating it later)
+     * also makes a database failure leave the whole attempt untouched.
+     */
+    private static boolean commitMagingResult(Player resultOwner,
+                                               Player weaponOwner,
+                                               GameObject weapon,
+                                               Player consumableOwner,
+                                               GameObject consumable,
+                                               Player signingOwner,
+                                               GameObject signingRune,
+                                               GameObject result) {
+        if (resultOwner == null || weaponOwner == null || weapon == null
+                || consumableOwner == null || consumable == null || result == null
+                || weapon.getQuantity() <= 0 || consumable.getQuantity() <= 0
+                || !weaponOwner.hasItemGuid(weapon.getGuid())
+                || !consumableOwner.hasItemGuid(consumable.getGuid())
+                || weapon.isAttach()
+                || weapon.getPosition() != Constant.ITEM_POS_NO_EQUIPED
+                || consumable.isAttach()
+                || consumable.getPosition() != Constant.ITEM_POS_NO_EQUIPED
+                || (signingRune != null && (signingOwner == null
+                || signingRune.getQuantity() <= 0
+                || !signingOwner.hasItemGuid(signingRune.getGuid())
+                || signingRune.isAttach()
+                || signingRune.getPosition() != Constant.ITEM_POS_NO_EQUIPED)))
+            return false;
+
+        ObjectData objectData = DatabaseManager.get(ObjectData.class);
+        if (!persistNewMagingResult(objectData, result))
+            return false;
+
+        consumeMagingObject(weaponOwner, weapon);
+        consumeMagingObject(consumableOwner, consumable);
+        if (signingRune != null)
+            consumeMagingObject(signingOwner, signingRune);
+
+        synchronized (resultOwner.getItems()) {
+            resultOwner.getItems().put(result.getGuid(), result);
+        }
+        World.world.addGameObject(result);
         return true;
     }
 
-    //region usefull function for fm
-    private void decrementObjectQuantity(Player player, GameObject object) {
-        if (object != null) {
-            int newQua = object.getQuantity() - 1;
-            if (newQua <= 0) {
-                player.removeItem(object.getGuid(), object.getQuantity(), true, true);
-                SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(player, object.getGuid());
-            } else {
-                object.setQuantity(newQua);
-                SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(player, object);
-            }
+    private static void notifyMagingCommit(Player resultOwner,
+                                           Player weaponOwner,
+                                           GameObject weapon,
+                                           Player consumableOwner,
+                                           GameObject consumable,
+                                           Player signingOwner,
+                                           GameObject signingRune,
+                                           GameObject result) {
+        Set<Player> affectedPlayers = Collections.newSetFromMap(
+                new IdentityHashMap<>());
+        affectedPlayers.add(resultOwner);
+        affectedPlayers.add(weaponOwner);
+        affectedPlayers.add(consumableOwner);
+        if (signingOwner != null)
+            affectedPlayers.add(signingOwner);
+        notifyConsumedMagingObject(weaponOwner, weapon);
+        notifyConsumedMagingObject(consumableOwner, consumable);
+        if (signingRune != null)
+            notifyConsumedMagingObject(signingOwner, signingRune);
+        SocketManager.GAME_SEND_OAKO_PACKET(resultOwner, result);
+        for (Player affected : affectedPlayers)
+            SocketManager.GAME_SEND_Ow_PACKET(affected);
+    }
+
+    static boolean persistNewMagingResult(ObjectData objectData,
+                                           GameObject result) {
+        return objectData != null && result != null && objectData.insert(result)
+                && result.getGuid() > 0;
+    }
+
+    private static void consumeMagingObject(Player owner, GameObject object) {
+        if (object.getQuantity() <= 1) {
+            owner.removeItem(object.getGuid());
+            World.world.removeGameObject(object.getGuid());
+            return;
         }
+        object.setQuantity(object.getQuantity() - 1);
+        persistQuantity(object);
+    }
+
+    private static void notifyConsumedMagingObject(Player owner,
+                                                   GameObject object) {
+        if (owner.hasItemGuid(object.getGuid()))
+            SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(owner, object);
+        else
+            SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(owner, object.getGuid());
+    }
+
+    private static void persistQuantity(GameObject object) {
+        // Temporary objects use negative GUIDs and have no database row yet.
+        if (object == null || object.getGuid() <= 0)
+            return;
+        ObjectData objectData = DatabaseManager.get(ObjectData.class);
+        if (objectData != null)
+            objectData.update(object);
+    }
+
+    static int remainingMagingWell(int well, float loss) {
+        if (well <= 0 || loss <= 0)
+            return Math.max(0, well);
+        return Math.max(0, Math.round(well - loss));
+    }
+
+    static int magingWellAfterStatLoss(int remainingWell,
+                                       float weightStillToLose) {
+        long generated = weightStillToLose < 0
+                ? (long) Math.ceil(-(double) weightStillToLose) : 0;
+        return (int) Math.min(Integer.MAX_VALUE,
+                Math.max(0L, remainingWell) + generated);
     }
 
     public static int getStatBaseMaxs(ObjectTemplate objMod, String statsModif) {
@@ -2170,31 +3145,79 @@ public class JobAction {
     private synchronized void craftMaging1(boolean isReapeat, int repeat) {
         GameObject gameObject = null, runeObject = null, potionObject = null, signingObject = null;
 
+        if (this.SM == null) {
+            this.rejectMagingAttempt(isReapeat);
+            return;
+        }
+        if (this.player.getMetierBySkill(this.id) != this.SM) {
+            this.rejectMagingAttempt(isReapeat);
+            return;
+        }
+
         //region Vérification de craft
         /* Type : 26 = potion pour les cac
            Type : 78 = rune
            Signature : Type 50 ou Id 7508 */
 
-        for(int id : this.ingredients.keySet()) {
-            GameObject object = World.world.getGameObject(id);
+        for (Entry<Integer, Integer> ingredient : this.ingredients.entrySet()) {
+            GameObject object = this.player.getItems().get(ingredient.getKey());
+            Integer selectedQuantity = ingredient.getValue();
+            if (object == null || object.getTemplate() == null
+                    || selectedQuantity == null || selectedQuantity <= 0
+                    || object.getQuantity() < selectedQuantity
+                    || object.isAttach()
+                    || object.getPosition() != Constant.ITEM_POS_NO_EQUIPED
+                    || hasObvijevanAttachment(object)) {
+                this.rejectMagingAttempt(isReapeat);
+                return;
+            }
             int type = object.getTemplate().getType();
 
-            if(gameObject == null && this.isAvailableObject(this.getJobStat().getTemplate().getId(), type)) {
+            if (this.isAvailableObject(this.SM.getTemplate().getId(), type)) {
+                if (gameObject != null || selectedQuantity != 1) {
+                    this.rejectMagingAttempt(isReapeat);
+                    return;
+                }
                 gameObject = object;
-            } else if(runeObject == null && type == 78)
+            } else if (type == Constant.ITEM_TYPE_RUNE_FORGEMAGIE) {
+                if (runeObject != null) {
+                    this.rejectMagingAttempt(isReapeat);
+                    return;
+                }
                 runeObject = object;
-            else if(potionObject == null && type == 26)
+            } else if (type == Constant.ITEM_TYPE_FM_POTION
+                    && isElementalMagingPotion(object.getTemplate().getId())) {
+                if (potionObject != null) {
+                    this.rejectMagingAttempt(isReapeat);
+                    return;
+                }
                 potionObject = object;
-            else if(signingObject == null && object.getTemplate().getId() == 7508)
+            } else if (object.getTemplate().getId() == 7508) {
+                if (signingObject != null || selectedQuantity != 1
+                        || this.SM.get_lvl() != 100) {
+                    this.rejectMagingAttempt(isReapeat);
+                    return;
+                }
                 signingObject = object;
+            } else {
+                this.rejectMagingAttempt(isReapeat);
+                return;
+            }
         }
 
-        if(gameObject == null || (runeObject == null && potionObject == null)) {
-            GameClient.leaveExchange(this.player);
+        if (gameObject == null || (runeObject == null && potionObject == null)
+                || (runeObject != null && potionObject != null)) {
+            this.rejectMagingAttempt(isReapeat);
+            return;
+        }
+        if (!isMagingLevelSufficient(this.SM.get_lvl(),
+                gameObject.getTemplate().getLevel())) {
+            this.rejectMagingAttempt(isReapeat);
             return;
         }
         if(this.analyzeObject(gameObject)) {
             player.sendMessage("Impossible d'FM ce type d'objet pour le moment (avec faiblesses)");
+            this.rejectMagingAttempt(isReapeat);
             return;
         }
         //endregion Vérification de craft
@@ -2205,7 +3228,14 @@ public class JobAction {
             Rune runeTemplate = Rune.getRuneById(runeObject.getTemplate().getId()); // On trouve le template de la rune qu'on souhaite appliqué à l'item
 
             if (runeTemplate == null) { // Si elle n'existe pas..
-                //Ne devrait pas arriver.
+                this.rejectMagingAttempt(isReapeat);
+                return;
+            }
+
+            GameObject sourceGameObject = gameObject;
+            gameObject = createDetachedMagingCopy(sourceGameObject);
+            if (gameObject == null) {
+                this.rejectMagingAttempt(isReapeat);
                 return;
             }
 
@@ -2249,7 +3279,7 @@ public class JobAction {
                     }
                 }
 
-                if(!exist) {
+                if(!exist && rune != null) {
                     PWRexotique += this.getPWR(rune, jet, (byte) 1);
                 }
             }
@@ -2434,17 +3464,11 @@ public class JobAction {
             //region success critique
             if (result == 0) {
                 int newQuantity = this.ingredients.get(runeObject.getGuid()) - 1;
-                this.player.removeItemByTemplateId(runeObject.getTemplate().getId(), 1, false);
-
                 int winXP = Formulas.calculXpWinFm(gameObject.getTemplate().getLevel(), (int) Math.floor(runeTemplate.getWeight())) * Config.rateJob;
-                if (winXP > 0) this.SM.addXp(this.player, winXP);
-                this.player.send("JX|" + this.SM.getTemplate().getId() + ";" + this.SM.get_lvl() + ";" + this.SM.getXpString(";") + ";");
 
-                GameObject newObject = gameObject.getClone(1,true);
-                this.player.removeItem(gameObject.getGuid(), 1, true, gameObject.getQuantity() == 1);
+                GameObject newObject = gameObject;
 
                 if (signingObject != null) {
-                    this.player.removeItemByTemplateId(signingObject.getTemplate().getId(), 1, false);
                     if (newObject.getTxtStat().containsKey(985))
                         newObject.getTxtStat().remove(985);
                     newObject.addTxtStat(985, this.player.getName());
@@ -2452,8 +3476,17 @@ public class JobAction {
 
                 newObject.getStats().addOneStat(runeTemplate.getCharacteristic(), runeTemplate.getBonus());
 
-                if (this.player.addItem(newObject, false, false))
-                    World.world.addGameObject(newObject);
+                if (!commitMagingResult(this.player, this.player,
+                        sourceGameObject, this.player, runeObject,
+                        signingObject == null ? null : this.player,
+                        signingObject, newObject)) {
+                    this.rejectMagingAttempt(isReapeat);
+                    return;
+                }
+                if (winXP > 0)
+                    this.SM.addXp(this.player, winXP);
+                this.player.send("JX|" + this.SM.getTemplate().getId() + ";"
+                        + this.SM.get_lvl() + ";" + this.SM.getXpString(";") + ";");
 
                 SocketManager.GAME_SEND_Ow_PACKET(this.player);
 
@@ -2462,13 +3495,18 @@ public class JobAction {
                 this.player.send("EcK;" + newObject.getTemplate().getId());//Vous avez crée...
 
                 this.ingredients.clear();
+                this.player.send("EMKO-" + sourceGameObject.getGuid() + "|1");
                 this.player.send("EMKO+" + newObject.getGuid() + "|1");
                 this.ingredients.put(newObject.getGuid(), 1);
 
                 if (newQuantity >= 1) {
                     this.player.send("EMKO+" + runeObject.getGuid() + "|" + newQuantity);
                     this.ingredients.put(runeObject.getGuid(), newQuantity);
+                } else {
+                    this.player.send("EMKO-" + runeObject.getGuid());
                 }
+                if (signingObject != null)
+                    this.player.send("EMKO-" + signingObject.getGuid());
 
                 this.oldJobCraft = this.jobCraft;
                 if (!isReapeat) this.setJobCraft(null);
@@ -2481,25 +3519,21 @@ public class JobAction {
             if(this.player.getGroup() != null)
                 player.sendMessage("Puit before : " + puit);
 
-            if (puit > 0)
-                puit = Math.round(puit - PWGLoose);
-            if (puit < 0) {
-                PWGLoose = -puit;
-                puit = 0;
-            }
-            if (puit > 0)
-                puit = Math.round(puit - PWGLoose);
+            int previousWell = puit;
+            puit = remainingMagingWell(previousWell, PWGLoose);
+            PWGLoose = Math.max(0, PWGLoose - previousWell);
 
             if(this.player.getGroup() != null)
                 player.sendMessage("Puit after : " + puit);
             boolean cancel = false;
+            int pendingXp = 0;
             //region Succès neutre
             if(result == 1) {
                 if(actualObjectSplitStats.length == 1 && (actualObjectSplitStats[0].isEmpty() || Short.parseShort(actualObjectSplitStats[0].split("#")[0], 16) == runeTemplate.getCharacteristic()))
                     cancel = true;
 
-                int winXP = Formulas.calculXpWinFm(gameObject.getTemplate().getLevel(), (int) Math.floor(runeTemplate.getWeight())) * Config.rateJob;
-                if (winXP > 0) this.SM.addXp(this.player, winXP);
+                pendingXp = Formulas.calculXpWinFm(gameObject.getTemplate().getLevel(),
+                        (int) Math.floor(runeTemplate.getWeight())) * Config.rateJob;
 
                 if(!cancel) {
                     List<Short> blacklist = new ArrayList<>();
@@ -2540,7 +3574,7 @@ public class JobAction {
 
                     if(this.player.getGroup() != null)
                         player.sendMessage("Puit remove PWGLoose : " + PWGLoose);
-                    puit = -(int) Math.ceil(PWGLoose);
+                    puit = magingWellAfterStatLoss(puit, PWGLoose);
                 }
             }
             //endregion
@@ -2570,23 +3604,18 @@ public class JobAction {
 
                 if(this.player.getGroup() != null)
                     player.sendMessage("Puit remove PWGLoose : " + PWGLoose);
-                puit = - (int) Math.ceil(PWGLoose);
+                puit = magingWellAfterStatLoss(puit, PWGLoose);
             }
             //endregion
 
             int newQuantity = this.ingredients.get(runeObject.getGuid()) - 1;
-            this.player.removeItemByTemplateId(runeObject.getTemplate().getId(), 1, false);
-
-            GameObject newObject = gameObject.getClone(1, true);
+            GameObject newObject = gameObject;
 
             if(puit < 0) puit = 0;
             newObject.setPuit(puit);
             if(this.player.getGroup() != null)
                 player.sendMessage("Puit finish : " + puit);
 
-
-            if (signingObject != null)
-                this.player.removeItemByTemplateId(signingObject.getTemplate().getId(), 1, false);
 
             if(result == 1) { // succes neutre
                 if (signingObject != null) {
@@ -2597,14 +3626,18 @@ public class JobAction {
 
                 if(!cancel)
                     newObject.getStats().addOneStat(runeTemplate.getCharacteristic(), runeTemplate.getBonus());
-                this.player.send("Im0194");//La magie n\'a pas parfaitement fonctionné..
-            } else {
-                this.player.send("Im0117");//La magie n'opère pas..
             }
 
-            this.player.removeItem(gameObject.getGuid(), 1, true, true);
-            if(this.player.addItem(newObject, false, false))
-                World.world.addGameObject(newObject);
+            if (!commitMagingResult(this.player, this.player,
+                    sourceGameObject, this.player, runeObject,
+                    signingObject == null ? null : this.player,
+                    signingObject, newObject)) {
+                this.rejectMagingAttempt(isReapeat);
+                return;
+            }
+            if (pendingXp > 0)
+                this.SM.addXp(this.player, pendingXp);
+            this.player.send(result == 1 ? "Im0194" : "Im0117");
 
             SocketManager.GAME_SEND_Ow_PACKET(this.player);
 
@@ -2612,7 +3645,7 @@ public class JobAction {
 
             this.player.send("IO" + this.player.getId() + "|-" + newObject.getTemplate().getId()); // Icon tête joueur :  +/-
 
-            this.player.send("EMKO-" + gameObject.getGuid() + "|1");
+            this.player.send("EMKO-" + sourceGameObject.getGuid() + "|1");
             this.ingredients.clear();
 
             this.player.send("EMKO+" + newObject.getGuid() + "|1");
@@ -2625,13 +3658,56 @@ public class JobAction {
             } else {
                 this.player.send("EMKO-" + runeObject.getGuid());
             }
+            if (signingObject != null)
+                this.player.send("EMKO-" + signingObject.getGuid());
 
             this.oldJobCraft = this.jobCraft;
             if (!isReapeat) this.setJobCraft(null);
         } else if(potionObject != null) {
-
+            if (this.SM == null
+                    || !isWeaponMagingJob(this.SM.getTemplate().getId())) {
+                SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+                this.broken = isReapeat;
+                return;
+            }
+            if (!this.craftMaging(isReapeat, null, null))
+                this.broken = isReapeat;
         }
         //endregion
+    }
+
+    static boolean isElementalMagingPotion(int templateId) {
+        switch (templateId) {
+            case 1333:
+            case 1335:
+            case 1337:
+            case 1338:
+            case 1340:
+            case 1341:
+            case 1342:
+            case 1343:
+            case 1345:
+            case 1346:
+            case 1347:
+            case 1348:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    static boolean isWeaponMagingJob(int jobId) {
+        return jobId >= JobConstant.JOB_FM_DAGUE
+                && jobId <= JobConstant.JOB_SM_BATON;
+    }
+
+    static boolean isMagingLevelSufficient(int jobLevel, int itemLevel) {
+        return jobLevel >= Math.max(0, itemLevel / 2);
+    }
+
+    private void rejectMagingAttempt(boolean isRepeat) {
+        SocketManager.GAME_SEND_Ec_PACKET(this.player, "EI");
+        this.broken = isRepeat;
     }
 
     private boolean analyzeObject(GameObject gameObject) {
@@ -2715,7 +3791,6 @@ public class JobAction {
 
     private float getPWR(Rune rune, String jet, byte type) {
         float weight = rune == null ? 1 : Rune.getRuneByCharacteristicAndByWeight(rune.getCharacteristic()).getWeight();
-        System.out.println("getPWR = Weight: " + weight + " | Type: " + type + " | Jet: " + jet);
         switch(type) {
             case 0:// min
                 return weight * Formulas.getMinJet(jet.split("#")[4]);

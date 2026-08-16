@@ -17,6 +17,7 @@ import org.starloco.locos.game.action.type.NpcDialogActionData;
 import org.starloco.locos.game.world.World;
 import org.starloco.locos.job.Job;
 import org.starloco.locos.job.JobStat;
+import org.starloco.locos.job.maging.BreakingObject;
 import org.starloco.locos.kernel.Constant;
 import org.starloco.locos.object.GameObject;
 import org.starloco.locos.object.ObjectTemplate;
@@ -51,6 +52,11 @@ public class SPlayer extends DefaultUserdata<Player> {
     @SuppressWarnings("unused")
     private static int level(Player p) {
         return p.getLevel();
+    }
+
+    @SuppressWarnings("unused")
+    private static boolean isOnline(Player p) {
+        return p.isOnline();
     }
 
     @SuppressWarnings("unused")
@@ -100,41 +106,63 @@ public class SPlayer extends DefaultUserdata<Player> {
     }
 
     @SuppressWarnings("unused")
-    private static boolean setExchangeAction(Player p, ArgumentIterator args) {
-        if(p.getExchangeAction() != null) return false;
+    private static void openCrusher(Player p, ArgumentIterator args) {
+        int cellID = args.nextInt();
+        if (p.getExchangeAction() != null)
+            return;
 
+        p.setAway(true);
+        p.setExchangeAction(new ExchangeAction<>(ExchangeAction.BREAKING_OBJECTS,
+                new BreakingObject()));
+        SocketManager.SEND_GDF_PERSO(p, cellID, 3, 1);
+        SocketManager.GAME_SEND_ECK_PACKET(p, 3, "8;181");
+    }
+
+    @SuppressWarnings("unused")
+    private static boolean setExchangeAction(Player p, ArgumentIterator args) {
         int t = args.nextInt();
         Object v = args.nextOptionalAny(null);
 
-        p.setExchangeAction(new ExchangeAction<>((byte) t, v));
-        return true;
+        if (t == ExchangeAction.USING_OBJECT)
+            return p.beginUsingObjectAction(v);
+
+        synchronized (p) {
+            if (p.getExchangeAction() != null)
+                return false;
+            p.setExchangeAction(new ExchangeAction<>((byte) t, v));
+            return true;
+        }
     }
 
     @SuppressWarnings("unused")
     private static boolean clearExchangeAction(Player p, ArgumentIterator args) {
         int t = args.nextInt();
 
-        ExchangeAction<?> a = p.getExchangeAction();
-        if(a.getType() != t) {
-            return false;
+        synchronized (p) {
+            ExchangeAction<?> a = p.getExchangeAction();
+            if (a == null || a.getType() != t)
+                return false;
+            p.setExchangeAction(null);
+            return true;
         }
-
-        p.setExchangeAction(null);
-        return true;
     }
 
     @SuppressWarnings("unused")
-    private static void useCraftSkill(Player p, ArgumentIterator args) {
+    private static boolean useCraftSkill(Player p, ArgumentIterator args) {
         int skillId = args.nextInt();
         int ingredientsCount = args.nextInt();
 
-        p.useCraftSkill(skillId, ingredientsCount);
+        return p.useCraftSkill(skillId, ingredientsCount);
     }
 
     @SuppressWarnings("unused")
     private static Object getCtxVal(Player p, ArgumentIterator args) {
         String key = args.nextString().toString();
-        return Optional.ofNullable(p.getExchangeAction()).map(a -> a.getContextValue(key)).orElse(null);
+        synchronized (p) {
+            return Optional.ofNullable(p.getExchangeAction())
+                    .map(action -> action.getContextValue(key))
+                    .orElse(null);
+        }
     }
 
     @SuppressWarnings("unused")
@@ -142,10 +170,13 @@ public class SPlayer extends DefaultUserdata<Player> {
         String key = args.nextString().toString();
         Object val = args.next();
 
-        if(p.getExchangeAction() == null) return false;
-
-        p.getExchangeAction().putContextValue(key, val);
-        return true;
+        synchronized (p) {
+            ExchangeAction<?> action = p.getExchangeAction();
+            if (action == null)
+                return false;
+            action.putContextValue(key, val);
+            return true;
+        }
     }
 
     @SuppressWarnings("unused")

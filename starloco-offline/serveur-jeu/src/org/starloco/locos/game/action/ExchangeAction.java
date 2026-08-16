@@ -54,11 +54,11 @@ public class ExchangeAction<T> {
         return value;
     }
 
-    public void putContextValue(String v, Object o) {
+    public synchronized void putContextValue(String v, Object o) {
         context.put(v, o);
     }
 
-    public Object getContextValue(String v) {
+    public synchronized Object getContextValue(String v) {
         return context.get(v);
     }
 }

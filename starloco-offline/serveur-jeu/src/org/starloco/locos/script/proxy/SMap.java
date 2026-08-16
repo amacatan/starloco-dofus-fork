@@ -108,6 +108,14 @@ public class SMap extends DefaultUserdata<GameMap> {
     }
 
     @SuppressWarnings("unused")
+    private static boolean trySetAnimationState(GameMap m, ArgumentIterator args) {
+        int cellId = args.nextInt();
+        String expected = args.nextString().toString();
+        String next = args.nextString().toString();
+        return m.transitionAnimationState(cellId, expected, next);
+    }
+
+    @SuppressWarnings("unused")
     private static void sendAction(GameMap m, ArgumentIterator args) {
         Player p = args.nextUserdata("SPlayer", SPlayer.class).getUserValue();
         int actionID = args.nextInt();

@@ -156,7 +156,7 @@ function Player:clearExchangeAction(typeID) end
 
 ---@param skillId number
 ---@param ingredientsCount number
----@return void
+---@return boolean opened
 function Player:useCraftSkill(skillId, ingredientsCount) end
 
 ---@param template number

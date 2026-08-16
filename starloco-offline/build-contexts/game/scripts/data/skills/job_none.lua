@@ -44,6 +44,10 @@ SKILLS[114] = function(p, _)        p:openZaap() end
 -- Use garbage bin
 SKILLS[153] = function(p, cellID)   p:openTrunk(cellID) end
 
+-- Crush equipment into runes. Skill 121 remains the recipe-based resource
+-- crusher; skill 181 uses its dedicated exchange protocol.
+SKILLS[181] = function(p, cellID)   p:openCrusher(cellID) end
+
 -- Use Switch
 SKILLS[179] = function(p, cellId)
     local switchHandler = p:map():def().switches[cellId]

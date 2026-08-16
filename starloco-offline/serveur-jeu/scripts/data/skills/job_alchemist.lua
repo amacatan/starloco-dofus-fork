@@ -1,5 +1,5 @@
 local jobID = AlchemistJob
-local toolIDs = {1473}
+local toolIDs = {1473, 8542}
 
 --FIXME timing / Reward
 local gatherSkills = {

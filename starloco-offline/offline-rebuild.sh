@@ -90,6 +90,7 @@ build_java() {
   docker run --rm --network none \
     -e GRADLE_USER_HOME=/gradle-cache \
     -v "$repo:/src" \
+    -v "$context:/build-contexts/$name" \
     -v "$CACHE:/gradle-cache" \
     -w /src \
     "$GRADLE_IMAGE" \

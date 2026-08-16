@@ -1,5 +1,5 @@
 local jobID = FarmerJob
-local toolType = 22
+local toolIDs = {577, 765, 8127, 8540, 8992}
 
 
 --FIXME timing / Reward
@@ -12,13 +12,14 @@ local gatherSkills = {
     {id=50,  obj=Objects.Flax,   minLvl=40,  itemID=423,  xp=30, respawn={6000, 10000} },
     {id=159, obj=Objects.Rice,   minLvl=50,  itemID=7018, xp=35, respawn={6000, 10000} },
     {id=52,  obj=Objects.Rye,    minLvl=50,  itemID=532,  xp=35, respawn={6000, 10000} },
-    {id=58,  obj=Objects.Malt,   minLvl=50,  itemID=405,  xp=40, respawn={6000, 10000} },
-    {id=54,  obj=Objects.Hemp,   minLvl=50,  itemID=425,  xp=45, respawn={6000, 10000} },
+    {id=58,  obj=Objects.Malt,   minLvl=60,  itemID=405,  xp=40, respawn={6000, 10000} },
+    {id=54,  obj=Objects.Hemp,   minLvl=70,  itemID=425,  xp=45, respawn={6000, 10000} },
 }
 
-local requirements = {jobID = jobID, toolType = toolType}
+local requirements = {jobID = jobID, toolIDs = toolIDs}
 
-registerGatherJobSkills(jobID, {toolType=toolType}, gatherSkills)
+registerGatherJobSkills(jobID, {toolIDs=toolIDs}, gatherSkills)
 
 registerCraftSkill(47, requirements, ingredientsForCraftJob(jobID))
-registerCraftSkill(122, requirements, ingredientsForCraftJob(jobID))
+-- Égrener is the fixed one-slot transformation defined by JobConstant.
+registerCraftSkill(122, requirements, function(_) return 1 end)

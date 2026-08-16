@@ -13,6 +13,7 @@ import org.starloco.locos.client.other.Stalk;
 import org.starloco.locos.client.other.Stats;
 import org.starloco.locos.command.administration.Group;
 import org.starloco.locos.common.Formulas;
+import org.starloco.locos.common.PathFinding;
 import org.starloco.locos.common.SocketManager;
 import org.starloco.locos.database.DatabaseManager;
 import org.starloco.locos.database.data.game.*;
@@ -198,7 +199,7 @@ public class Player implements Scripted<SPlayer>, Actor {
     private boolean _spec;
     //Traque
     private Stalk _traqued;
-    private boolean doAction;
+    private volatile boolean doAction;
     //FullMorph Stats
     private boolean _morphMode = false;
     private int _morphId;
@@ -1107,11 +1108,11 @@ public class Player implements Scripted<SPlayer>, Actor {
         _savePos = new Pair<>(mapID, cellID);
     }
 
-    public long getKamas() {
+    public synchronized long getKamas() {
         return kamas;
     }
 
-    public void setKamas(long l) {
+    public synchronized void setKamas(long l) {
         this.kamas = l;
     }
 
@@ -1899,8 +1900,11 @@ public class Player implements Scripted<SPlayer>, Actor {
             }
         }
 
-        if (_morphMode)
-            setFullMorph(_morphId, true, true);
+        if (_morphMode) {
+            GameClient.reconcileIncarnationMorph(this);
+            if (_morphMode)
+                setFullMorph(_morphId, true, true);
+        }
 
         if (Config.autoReboot)
             this.send(Reboot.toStr());
@@ -2837,11 +2841,16 @@ public class Player implements Scripted<SPlayer>, Actor {
         return up;
     }
 
-    public boolean addKamas(long l) {
-        // Make sure the player has enough
-        if(l < 0 && kamas < -l) return false;
-        kamas += l;
-        return true;
+    public synchronized boolean addKamas(long quantity) {
+        try {
+            long updated = Math.addExact(this.kamas, quantity);
+            if (updated < 0)
+                return false;
+            this.kamas = updated;
+            return true;
+        } catch (ArithmeticException exception) {
+            return false;
+        }
     }
 
     public boolean modKamasDisplay(long quantity) {
@@ -2948,21 +2957,10 @@ public class Player implements Scripted<SPlayer>, Actor {
     }
 
     public void unequipedObjet(GameObject o) {
+        int previousPosition = o.getPosition();
         o.setPosition(Constant.ITEM_POS_NO_EQUIPED);
         ObjectTemplate oTpl = o.getTemplate();
-        int idSetExObj = oTpl.getPanoId();
-        if ((idSetExObj >= 81 && idSetExObj <= 92)
-                || (idSetExObj >= 201 && idSetExObj <= 212)) {
-            String[] stats = oTpl.getStrTemplate().split(",");
-            for (String stat : stats) {
-                String[] val = stat.split("#");
-                String modifi = Integer.parseInt(val[0], 16) + ";"
-                        + Integer.parseInt(val[1], 16) + ";0";
-                SocketManager.SEND_SB_SPELL_BOOST(this, modifi);
-                this.removeObjectClassSpell(Integer.parseInt(val[1], 16));
-            }
-            this.removeObjectClass(oTpl.getId());
-        }
+        GameClient.cleanupRemovedEquipmentEffects(this, o, previousPosition);
         SocketManager.GAME_SEND_OBJET_MOVE_PACKET(this, o);
         if (oTpl.getPanoId() > 0)
             SocketManager.GAME_SEND_OS_PACKET(this, oTpl.getPanoId());
@@ -3046,30 +3044,93 @@ public class Player implements Scripted<SPlayer>, Actor {
         return nb;
     }
 
-    public void startActionOnCell(GameAction GA) {
+    public boolean startActionOnCell(GameAction GA) {
         int cellID;
         int skillID;
         try {
             cellID = Integer.parseInt(GA.args.split(";")[0]);
             skillID = Integer.parseInt(GA.args.split(";")[1]);
         } catch (Exception e) {
-            e.printStackTrace();
-            return;
+            return false;
         }
         if (cellID == -1 || skillID == -1)
-            return;
+            return false;
+
+        GameMap map = this.curMap;
+        GameCase playerCell = this.curCell;
+        if (map == null || playerCell == null || map.getCase(cellID) == null
+                || this.fight != null)
+            return false;
 
         boolean allowed = World.world
-            .getObjectBySprite(curMap.cellsData.object2(cellID))
+            .getObjectBySprite(map.cellsData.object2(cellID))
             .map(o -> o.allowSkill(skillID))
             .orElse(false);
 
         if(!allowed) {
             // TODO: Cheat attempt
-            return;
+            return false;
         }
 
+        if (requiresAvailablePods(skillID)
+                && (this.getPodUsed() > this.getMaxPod()
+                || (this._mount != null
+                && this._mount.getActualPods() > this._mount.getMaxPods()))) {
+            SocketManager.GAME_SEND_Im_PACKET(this, "112");
+            return false;
+        }
+
+        if (!isObjectActionInRange(map, playerCell.getId(), cellID, skillID,
+                this.getObjetByPos(Constant.ITEM_POS_ARME)))
+            return false;
+
         DataScriptVM.getInstance().handlers.onSkillUse(this, cellID, skillID);
+        return true;
+    }
+
+    static boolean requiresAvailablePods(int skillID) {
+        // The well is a gathering action too, although it is not part of the
+        // historical JOB_ACTION table. Storage and crushers must stay usable
+        // by an overloaded player so that they can reduce their carried pods.
+        return JobConstant.isJobAction(skillID) || skillID == 102;
+    }
+
+    static boolean isFishingGatherSkill(int skillID) {
+        switch (skillID) {
+            case 124:
+            case 125:
+            case 126:
+            case 127:
+            case 128:
+            case 129:
+            case 130:
+            case 131:
+            case 136:
+            case 140:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    static boolean isObjectActionInRange(GameMap map, int playerCellID,
+                                         int objectCellID, int skillID,
+                                         GameObject equippedWeapon) {
+        if (map == null || map.getCase(playerCellID) == null
+                || map.getCase(objectCellID) == null)
+            return false;
+
+        if (!isFishingGatherSkill(skillID))
+            return PathFinding.getAllCaseIdAllDirrection(objectCellID, map)
+                    .contains(playerCellID);
+
+        if (equippedWeapon == null || equippedWeapon.getTemplate() == null)
+            return false;
+        int rodRange = JobConstant.getDistCanne(
+                equippedWeapon.getTemplate().getId());
+        int distance = PathFinding.getDistanceBetween(map, playerCellID,
+                objectCellID);
+        return rodRange > 0 && distance > 0 && distance <= rodRange;
     }
 
     public void finishActionOnCell(GameAction GA) {
@@ -3769,11 +3830,52 @@ public class Player implements Scripted<SPlayer>, Actor {
         return _metiers;
     }
 
-    public void useCraftSkill(int skillId, int ingredientsCount) {
-        setAway(true);
-        setExchangeAction(new ExchangeAction<>(ExchangeAction.CRAFTING, skillId));
+    public synchronized boolean useCraftSkill(int skillId, int ingredientsCount) {
+        if (this.getExchangeAction() != null)
+            return false;
 
-        SocketManager.GAME_SEND_ECK_PACKET(this, 3, ingredientsCount + ";" + skillId);
+        JobStat jobStat = this.getMetierBySkill(skillId);
+        JobAction action;
+        int slots;
+
+        if (jobStat != null) {
+            JobAction definition = jobStat.getJobActionBySkill(skillId);
+            if (definition == null || !definition.isCraft()
+                    || (JobAction.isEtherealRepairSkill(skillId)
+                    && jobStat.get_lvl() < 10))
+                return false;
+            action = definition.createCraftSession(this, jobStat);
+            slots = definition.getMin();
+        } else {
+            slots = specialCraftSlots(skillId);
+            Job specialJob = World.world.getMetier(skillId);
+            if (slots == 0 || specialJob == null
+                    || specialJob.getListBySkill(skillId) == null)
+                return false;
+            JobAction definition = new JobAction(skillId, slots, 0, true, 100, 0);
+            action = definition.createCraftSession(this, null);
+        }
+
+        setAway(true);
+        setExchangeAction(new ExchangeAction<>(ExchangeAction.CRAFTING, action));
+
+        SocketManager.GAME_SEND_ECK_PACKET(this, 3, slots + ";" + skillId);
+        return true;
+    }
+
+    static int specialCraftSlots(int skillId) {
+        switch (skillId) {
+            case 22:
+                return 1;
+            case 110:
+                return 2;
+            case 121:
+                return 8;
+            case 151:
+                return 4;
+            default:
+                return 0;
+        }
     }
 
     public String parseJobData() {
@@ -5551,30 +5653,7 @@ public class Player implements Scripted<SPlayer>, Actor {
     }
 
     public void refreshObjectsClass() {
-        for (int position = 2; position < 8; position++) {
-            GameObject object = getObjetByPos(position);
-
-            if(object != null) {
-                ObjectTemplate template = object.getTemplate();
-                int set = object.getTemplate().getPanoId();
-
-                if (template != null && set >= 81 && set <= 92) {
-                    String[] stats = object.getTemplate().getStrTemplate().split(",");
-                    for (String stat : stats) {
-                        String[] split = stat.split("#");
-                        int effect = Integer.parseInt(split[0], 16), spell = Integer.parseInt(split[1], 16);
-                        int value = Integer.parseInt(split[3], 16);
-                        if(effect == 289)
-                            value = 1;
-                        SocketManager.SEND_SB_SPELL_BOOST(this, effect + ";" + spell + ";" + value);
-                        addObjectClassSpell(spell, effect, value);
-                    }
-
-                    if (!this.objectsClass.contains(template.getId()))
-                        this.objectsClass.add(template.getId());
-                }
-            }
-        }
+        GameClient.rebuildClassSpellBonuses(this);
     }
 
     public int getValueOfClassObject(int spell, int effect) {
@@ -5855,15 +5934,41 @@ public class Player implements Scripted<SPlayer>, Actor {
         _curHouse = h;
     }
 
-    private ExchangeAction<?> exchangeAction;
+    private volatile ExchangeAction<?> exchangeAction;
 
     public ExchangeAction<?> getExchangeAction() {
         return exchangeAction;
     }
 
+    public synchronized boolean beginUsingObjectAction(Object context) {
+        if (this.exchangeAction != null || this.doAction)
+            return false;
+        this.exchangeAction = new ExchangeAction<>(ExchangeAction.USING_OBJECT,
+                context);
+        this.doAction = true;
+        return true;
+    }
+
     public synchronized void setExchangeAction(ExchangeAction<?> exchangeAction) {
-        if(exchangeAction == null) this.setAway(false);
+        boolean previousActionLockedMovement = locksMovement(this.exchangeAction);
+        boolean nextActionLocksMovement = locksMovement(exchangeAction);
+        if (previousActionLockedMovement && !nextActionLocksMovement)
+            this.setDoAction(false);
+        if (nextActionLocksMovement)
+            this.setDoAction(true);
+        if (exchangeAction == null) {
+            this.setAway(false);
+        }
         this.exchangeAction = exchangeAction;
+    }
+
+    private static boolean locksMovement(ExchangeAction<?> action) {
+        if (action == null)
+            return false;
+        return action.getType() == ExchangeAction.USING_OBJECT
+                || action.getType() == ExchangeAction.CRAFTING
+                || action.getType() == ExchangeAction.BREAKING_OBJECTS
+                || action.getType() == ExchangeAction.CRAFTING_SECURE_WITH;
     }
 
     public void refreshCraftSecure(boolean unequip) {

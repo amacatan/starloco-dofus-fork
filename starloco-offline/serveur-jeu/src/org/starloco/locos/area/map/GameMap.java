@@ -631,13 +631,22 @@ public class GameMap {
         return this.interactiveObjects.get(cellId);
     }
 
-    public String getAnimationState(int cellId) {
+    public synchronized String getAnimationState(int cellId) {
         Animation anim = data.animations.get(cellId);
         if(anim == null) return null;
         return animationStates.getOrDefault(cellId, anim.defaultState);
     }
 
-    public void setAnimationState(int cellId, String frameName, Runnable cb) {
+    public synchronized boolean transitionAnimationState(int cellId,
+                                                         String expectedState,
+                                                         String nextState) {
+        if (!Objects.equals(this.getAnimationState(cellId), expectedState))
+            return false;
+        this.setAnimationState(cellId, nextState, null);
+        return true;
+    }
+
+    public synchronized void setAnimationState(int cellId, String frameName, Runnable cb) {
         Animation anim = Objects.requireNonNull(data.animations.get(cellId));
         String previousStateName = this.animationStates.get(cellId);
 
@@ -688,7 +697,7 @@ public class GameMap {
         }
     }
 
-    public void setAnimationState(int cellId, String frameName) {
+    public synchronized void setAnimationState(int cellId, String frameName) {
         setAnimationState(cellId, frameName, null);
     }
 

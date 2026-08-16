@@ -152,7 +152,7 @@ public class PlayerData extends FunctionDAO<Player> {
     }
 
     @Override
-    public void update(Player entity) {
+    public synchronized void update(Player entity) {
         PreparedStatement p = null;
         try {
             p = getPreparedStatement("UPDATE " + getTableName() + " SET `kamas`= ?, `spellboost`= ?, `capital`= ?, `energy`= ?, `level`= ?, `xp`= ?, `size` = ?, `gfx`= ?, `alignement`= ?, `honor`= ?, `deshonor`= ?, `alvl`= ?, `vitalite`= ?, `force`= ?, `sagesse`= ?, `intelligence`= ?, `chance`= ?, `agilite`= ?, `seeFriend`= ?, `seeAlign`= ?, `seeSeller`= ?, `canaux`= ?, `map`= ?, `cell`= ?, `pdvper`= ?, `spells`= ?, `objets`= ?, `storeObjets`= ?, `savepos`= ?, `zaaps`= ?, `jobs`= ?, `mountxpgive`= ?, `mount`= ?, `title`= ?, `wife`= ?, `morphMode`= ?, `allTitle` = ?, `emotes` = ?, `prison` = ?, `parcho` = ?, `timeDeblo` = ?, `noall` = ?, `deadInformation` = ?, `deathCount` = ?, `totalKills` = ? WHERE `id` = ? LIMIT 1");
@@ -214,6 +214,60 @@ public class PlayerData extends FunctionDAO<Player> {
             super.sendError(e);
         } finally {
             close(p);
+        }
+    }
+
+    public synchronized boolean updateKamasAtomically(Player first, Player second) {
+        if (first == null || second == null || first.getId() == second.getId())
+            return false;
+
+        String selectSql = "SELECT `id` FROM " + getTableName()
+                + " WHERE `id` IN (?, ?) FOR UPDATE";
+        String updateSql = "UPDATE " + getTableName()
+                + " SET `kamas` = CASE `id` WHEN ? THEN ? WHEN ? THEN ? ELSE `kamas` END"
+                + " WHERE `id` IN (?, ?)";
+
+        try (Connection connection = getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                int players = 0;
+                try (PreparedStatement select = connection.prepareStatement(selectSql)) {
+                    select.setInt(1, first.getId());
+                    select.setInt(2, second.getId());
+                    try (ResultSet result = select.executeQuery()) {
+                        while (result.next())
+                            players++;
+                    }
+                }
+
+                if (players != 2) {
+                    connection.rollback();
+                    return false;
+                }
+
+                try (PreparedStatement update = connection.prepareStatement(updateSql)) {
+                    update.setInt(1, first.getId());
+                    update.setLong(2, first.getKamas());
+                    update.setInt(3, second.getId());
+                    update.setLong(4, second.getKamas());
+                    update.setInt(5, first.getId());
+                    update.setInt(6, second.getId());
+                    update.executeUpdate();
+                }
+
+                connection.commit();
+                return true;
+            } catch (SQLException exception) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackException) {
+                    exception.addSuppressed(rollbackException);
+                }
+                throw exception;
+            }
+        } catch (SQLException exception) {
+            super.sendError(exception);
+            return false;
         }
     }
 

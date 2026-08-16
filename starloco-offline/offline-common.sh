@@ -88,6 +88,46 @@ need_docker() {
   docker info >/dev/null 2>&1 || die "Le démon Docker ne répond pas."
 }
 
+bind_address_available() {
+  local address="$1"
+
+  case "$address" in
+    0.0.0.0|::|'[::]') return 0 ;;
+  esac
+
+  command -v ip >/dev/null 2>&1 || return 2
+  ip -o address show 2>/dev/null | awk -v expected="$address" '
+    {
+      split($4, current, "/")
+      if (current[1] == expected) {
+        found = 1
+      }
+    }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+wait_for_bind_address() {
+  local address="$1" retries="${2:-30}" attempt result
+
+  [[ -n "$address" ]] || die "BIND_ADDRESS est absent de $STACK/.env."
+  for ((attempt=1; attempt<=retries; attempt++)); do
+    if bind_address_available "$address"; then
+      return 0
+    else
+      result=$?
+    fi
+
+    (( result != 2 )) || die "La commande 'ip' est absente ; impossible de valider BIND_ADDRESS."
+    if (( attempt == 1 )); then
+      printf 'Attente de l’adresse réseau %s…\n' "$address"
+    fi
+    (( attempt == retries )) || sleep 1
+  done
+
+  die "L’adresse BIND_ADDRESS=$address n’est attribuée à aucune interface locale. Vérifiez l’interface réseau ou corrigez $STACK/.env ; aucun service n’a été arrêté."
+}
+
 image_exists() {
   docker image inspect "$1" >/dev/null 2>&1
 }

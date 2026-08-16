@@ -12,6 +12,8 @@ esac
 
 need_docker
 ensure_runtime_files
+bind_address="$(awk -F= '$1 == "BIND_ADDRESS" { print substr($0, index($0, "=") + 1); exit }' "$STACK/.env")"
+wait_for_bind_address "$bind_address"
 
 base_images=(mariadb:11.3 starloco-offline/web:prepared)
 full_images=(redis:7-alpine starloco-offline/login:custom starloco-offline/game:custom)
@@ -79,7 +81,6 @@ compose up -d --no-build --pull never --no-deps --force-recreate "${application_
 wait_for_services "${application_services[@]}"
 
 compose ps
-bind_address="$(grep -E '^BIND_ADDRESS=' "$STACK/.env" | cut -d= -f2)"
 printf '\nFil communautaire : http://%s/\n' "$bind_address"
 printf 'Annuaire des joueurs : http://%s/players\n' "$bind_address"
 printf 'Création de compte : http://%s/register.php\n' "$bind_address"

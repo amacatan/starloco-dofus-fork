@@ -42,14 +42,14 @@ local function checkRequirements(p, requirements)
     end
 
     local tool = p:gearAt(WeaponSlot)
-    if requirements.toolIDs and not table.contains(requirements.toolIDs, tool:id()) then
+    if requirements.toolIDs and (not tool or not table.contains(requirements.toolIDs, tool:id())) then
         print("WRONG TOOL FOR JOB")
         -- Wrong tool
         -- TODO: Chat message ?
         return false
     end
 
-    if requirements.toolType and tool:type() ~= requirements.toolType then
+    if requirements.toolType and (not tool or tool:type() ~= requirements.toolType) then
         print("WRONG TOOL TYPE FOR JOB")
         -- Wrong tool
         -- TODO: Chat message ?
@@ -66,8 +66,18 @@ end
 ---@param requirements SkillRequirements
 ---@param ingredientCountFn fun(p:Player):number
 function registerCraftSkill(skillId,  requirements, ingredientCountFn)
+    if not ingredientCountFn then
+        if not requirements or not requirements.jobID then
+            error("Craft skills without a job require an ingredient count function")
+        end
+        ingredientCountFn = ingredientsForCraftJob(requirements.jobID)
+    end
+
     SKILLS[skillId] = function(p, cellId)
         if not checkRequirements(p, requirements) then return end
+
+        local opened = p:useCraftSkill(skillId, ingredientCountFn(p))
+        if not opened then return false end
 
         -- Animation
         local map = p:map()
@@ -83,7 +93,7 @@ function registerCraftSkill(skillId,  requirements, ingredientCountFn)
             end)
         end
 
-        return p:useCraftSkill(skillId, ingredientCountFn(p))
+        return true
     end
 end
 
@@ -113,8 +123,21 @@ function registerGatherSkill(skillId, actorAnimID, durationFn, rewardFn, respawn
             return
         end
 
-        map:setAnimationState(cellId, AnimStates.LOCKED)
-        p:setExchangeAction(UsingObjectAction)
+        -- Reserve both the player and the resource before starting the delayed
+        -- action. The token prevents an old callback from rewarding or clearing
+        -- a newer gathering session of the same player.
+        local actionToken = {}
+        if not p:setExchangeAction(UsingObjectAction) then return end
+        if not p:setCtxVal("job_action_token", actionToken) then
+            p:clearExchangeAction(UsingObjectAction)
+            return
+        end
+        local mapID = p:mapID()
+
+        if not map:trySetAnimationState(cellId, AnimStates.READY, AnimStates.LOCKED) then
+            p:clearExchangeAction(UsingObjectAction)
+            return
+        end
 
         local duration = durationFn(p)
 
@@ -126,22 +149,26 @@ function registerGatherSkill(skillId, actorAnimID, durationFn, rewardFn, respawn
         p:map():sendAction(p, 0, 501, actionParams)
 
         World:delayForMs(duration, function()
-            -- Done Gathering, reward
-            rewardFn(p)
+            local ownsAction = p:getCtxVal("job_action_token") == actionToken
+            local rewardError = nil
+            if ownsAction and p:isOnline() and p:mapID() == mapID then
+                local ok, err = pcall(rewardFn, p)
+                if not ok then rewardError = err end
+            end
+            if ownsAction then p:clearExchangeAction(UsingObjectAction) end
 
             -- animate object
             map:setAnimationState(cellId, AnimStates.IN_USE)
-
-            p:clearExchangeAction(UsingObjectAction)
             -- Respawn
-            if not respawnIntervalFn then return end
+            if respawnIntervalFn then
+                local respawnDelay = respawnIntervalFn()
+                World:delayForMs(respawnDelay, function()
+                    if map:getAnimationState(cellId) ~= AnimStates.NOT_READY then return end
 
-            local respawnDelay = respawnIntervalFn()
-            World:delayForMs(respawnDelay, function()
-                if map:getAnimationState(cellId) ~= AnimStates.NOT_READY then return end
-
-                map:setAnimationState(cellId, AnimStates.READYING)
-            end)
+                    map:setAnimationState(cellId, AnimStates.READYING)
+                end)
+            end
+            if rewardError then error(rewardError) end
         end)
     end
 end
@@ -160,14 +187,17 @@ end
 function registerGatherJobSkills(jobID, toolInfo, skills)
     for _, sk in pairs(skills) do
         local durationForPlayer = function(p)
-            local lvlDiff = p:jobLevel(jobID) - sk.minLvl
-            return GATHER_SKILL_BASE_DURATION - 100 * lvlDiff
+            return GATHER_SKILL_BASE_DURATION - 100 * p:jobLevel(jobID)
         end
 
         ---@param p Player
         local rewardFn = function(p)
-            local lvlDiff = p:jobLevel(jobID) - sk.minLvl
-            local quantity = math.random(1, 2 + math.floor(lvlDiff / 5))
+            local jobLvl = p:jobLevel(jobID)
+            local lvlDiff = jobLvl - sk.minLvl
+            local minimum = jobLvl == 100 and 6 or 1
+            local maximum = 2 + math.floor(lvlDiff / 5)
+            local quantity = maximum > minimum and math.random(minimum, maximum)
+                    or minimum
 
             local itemID = sk.itemID
             local xp = sk.xp
@@ -185,7 +215,8 @@ function registerGatherJobSkills(jobID, toolInfo, skills)
 
         local req = {jobID = jobID, jobLvl =  sk.minLvl}
         if toolInfo.toolType then req.toolType = toolInfo.toolType end
-        if toolInfo.toolID then req.toolID = toolInfo.toolID end
+        if toolInfo.toolIDs then req.toolIDs = toolInfo.toolIDs end
+        if toolInfo.toolID then req.toolIDs = {toolInfo.toolID} end
 
         registerGatherSkill(
             sk.id,
@@ -206,7 +237,7 @@ function ingredientsForCraftJob(jobID)
 
         if lvl == 100 then return 9
         elseif lvl < 10 then return 2
-        else return lvl/20 + 4 end
+        else return math.floor(lvl / 20) + 3 end
     end
 end
 
@@ -217,6 +248,6 @@ function successRateForCraftJob(jobID)
 
         if lvl == 100 then  return 99
         elseif lvl < 10 then return 50
-        else return 54 + ((lvl / 10) - 1) * 5 end
+        else return 54 + (math.floor(lvl / 10) - 1) * 5 end
     end
 end

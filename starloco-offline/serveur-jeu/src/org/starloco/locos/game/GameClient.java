@@ -84,6 +84,8 @@ import org.starloco.locos.util.generator.NameGenerator;
 
 public class GameClient {
 
+    private static final int MAX_BREAKING_REPETITIONS = 10_000;
+
     private final IoSession session;
     private Account account;
     private Player player;
@@ -1973,10 +1975,10 @@ public class GameClient {
         ExchangeAction<?> exchangeAction = this.player.getExchangeAction();
         Object value = exchangeAction.getValue();
 
-        if (exchangeAction.getType() == ExchangeAction.CRAFTING && value instanceof JobAction) {
-            if (((JobAction) value).isCraft()) {
-                ((JobAction) value).startCraft(this.player);
-            }
+        if (exchangeAction.getType() == ExchangeAction.CRAFTING) {
+            JobAction craftAction = this.currentCraftAction();
+            if (craftAction != null && craftAction.isCraft())
+                craftAction.startCraft(this.player);
             return;
         }
 
@@ -1993,89 +1995,317 @@ public class GameClient {
             if (((Exchange) value).toogleOk(this.player.getId()))
                 ((Exchange) value).apply();
 
-        if (exchangeAction.getType() == ExchangeAction.BREAKING_OBJECTS && value instanceof BreakingObject) {
-            if (((BreakingObject) value).getObjects().isEmpty())
-                return;
+        if (exchangeAction.getType() == ExchangeAction.BREAKING_OBJECTS
+                && value instanceof BreakingObject)
+            breakObjects((BreakingObject) value);
+    }
 
-            Fragment fragment = new Fragment("");
+    /**
+     * Break a complete crusher selection.  The old implementation consumed each
+     * line as it was validated; a stale second line consequently destroyed the
+     * first object and still created a fragment.  Keep validation, rune rolling
+     * and inventory mutation under the inventory monitor so a rejected selection
+     * is a true no-op.
+     */
+    private synchronized boolean breakObjects(BreakingObject breakingObject) {
+        synchronized (breakingObject) {
+            ExchangeAction<?> exchangeAction = this.player.getExchangeAction();
+            if (breakingObject.isStop() || exchangeAction == null
+                    || exchangeAction.getType() != ExchangeAction.BREAKING_OBJECTS
+                    || exchangeAction.getValue() != breakingObject)
+                return false;
 
-            for (Couple<Integer, Integer> couple : ((BreakingObject) value).getObjects()) {
-                GameObject object = this.player.getItems().get(couple.first);
+            final ArrayList<Couple<Integer, Integer>> selection =
+                    breakingObject.snapshotObjects();
+            if (selection.isEmpty())
+                return false;
 
-                if (object == null || couple.second < 1 || object.getQuantity() < couple.second) {
+            synchronized (this.player.getItems()) {
+                if (!isValidCrusherSelection(this.player.getItems(), selection)) {
                     this.player.send("Ea3");
-                    break;
+                    return false;
                 }
 
-                for (int k = couple.second; k > 0; k--) {
-                    int type = object.getTemplate().getType();
-                    if (type > 11 && type < 16 && type > 23 && type != 81 && type != 82)
-                        continue;
-                    for (Map.Entry<Integer, Integer> entry1 : object.getStats().getEffects().entrySet()) {
-                        int jet = entry1.getValue();
-                        for (Rune rune : Rune.runes) {
-                            if (entry1.getKey() == rune.getCharacteristic()) {
-                                if (rune.getId() == 1557 || rune.getId() == 1558 || rune.getId() == 7438) {
-                                    double puissance = 1.5 * (Math.pow(object.getTemplate().getLevel(), 2.0) / Math.pow(rune.getWeight(), (5.0 / 4.0))) + ((jet - 1) / rune.getWeight()) * (66.66 - 1.5 * (Math.pow(object.getTemplate().getLevel(), 2.0) / Math.pow(rune.getWeight(), (55.0 / 4.0))));
-                                    int chance = (int) Math.ceil(puissance);
+                // Build a detached fragment and an immutable debit plan first.
+                // SQL persistence below commits the result, every source debit
+                // and the player's ownership list as one transaction.
+                Fragment fragment = new Fragment(-1, "");
+                List<ObjectData.CrusherDebit> debits = new ArrayList<>();
+                for (Couple<Integer, Integer> couple : selection) {
+                    GameObject object = this.player.getItems().get(couple.first);
+                    addCrusherRunes(fragment, object, couple.second);
+                    debits.add(new ObjectData.CrusherDebit(
+                            object, couple.second));
+                }
+                ObjectData objectData = DatabaseManager.get(ObjectData.class);
+                PlayerData playerData = DatabaseManager.get(PlayerData.class);
+                if (objectData == null || playerData == null) {
+                    this.player.send("Ea3");
+                    return false;
+                }
 
-                                    if (chance > 66) chance = 66;
-                                    else if (chance <= 0) chance = 1;
-                                    if (Formulas.getRandomValue(1, 100) <= chance)
-                                        fragment.addRune(rune.getId());
-                                } else {
-                                    double val = rune.getBonus();
-                                    if (rune.getId() == 7451 || rune.getId() == 10662) val *= 3.0;
-
-                                    double tauxGetMin = World.world.getTauxObtentionIntermediaire(val, true, (val != 30)), tauxGetMax = (tauxGetMin / (2.0 / 3.0)) / 0.9;
-                                    int tauxMax = (int) Math.ceil(tauxGetMax), tauxGet = (int) Math.ceil(tauxGetMin), tauxMin = 2 * (tauxMax - tauxGet) - 2;
-
-                                    if (rune.getId() == 7433 || rune.getId() == 7434 || rune.getId() == 7435 || rune.getId() == 7441)
-                                        tauxMax++;
-                                    if (jet < tauxMin) continue;
-
-                                    for (int i = jet; i > 0; i -= tauxMax) {
-                                        int j = 0;
-                                        if (i > tauxMax) j = tauxMax;
-                                        else j = i;
-                                        if (j == tauxMax) fragment.addRune(rune.getId());
-                                        else if (Formulas.getRandomValue(1, 100) < (100 * (tauxMax - j) / (tauxMax - tauxMin)))
-                                            fragment.addRune(rune.getId());
-                                    }
-                                }
-                            }
+                ObjectData.CrusherBatch batch;
+                // PlayerData.update is the autosave snapshot boundary.  Hold
+                // that monitor and ObjectData's persistence monitor from before
+                // the transaction until memory and World have caught up, so a
+                // save can observe only the old state or the committed state.
+                synchronized (playerData) {
+                    synchronized (objectData) {
+                        batch = objectData.persistCrusherExchangeAtomically(
+                                this.player, fragment, debits);
+                        if (batch == null) {
+                            this.player.send("Ea3");
+                            return false;
                         }
+                        batch.applyToMemory();
                     }
                 }
 
-                if (couple.second == object.getQuantity()) {
-                    this.player.deleteItem(object.getGuid());
-                    World.world.removeGameObject(object.getGuid());
-                    SocketManager.SEND_OR_DELETE_ITEM(this, object.getGuid());
-                } else {
-                    object.setQuantity(object.getQuantity() - couple.second);
-                    SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(this.player, object);
+                // Only notifications remain after commit.  A disconnected or
+                // faulty client cannot roll back or duplicate the exchange.
+                notifyCommittedCrusherBatch(batch);
+                breakingObject.clearObjects();
+                return true;
+            }
+        }
+    }
+
+    private void notifyCommittedCrusherBatch(ObjectData.CrusherBatch batch) {
+        for (ObjectData.CrusherDebit debit : batch.getDebits()) {
+            try {
+                if (debit.removesCompleteStack())
+                    SocketManager.SEND_OR_DELETE_ITEM(
+                            this, debit.getSource().getGuid());
+                else
+                    SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(
+                            this.player, debit.getSource());
+            } catch (RuntimeException | Error notificationError) {
+                try {
+                    World.world.logger.error(
+                            "Committed crusher source notification failed",
+                            notificationError);
+                } catch (RuntimeException | Error ignored) {
+                    // The exchange is durable; logging must not affect it.
                 }
             }
+        }
 
-            World.world.addGameObject(fragment);
-            this.player.addItem(fragment, true);
+        try {
+            SocketManager.GAME_SEND_OAKO_PACKET(
+                    this.player, batch.getFragment());
             SocketManager.GAME_SEND_Ec_PACKET(this.player, "K;8378");
             SocketManager.GAME_SEND_Ow_PACKET(this.player);
-            SocketManager.GAME_SEND_IO_PACKET_TO_MAP(this.player.getCurMap(), this.player.getId(), "+8378");
-            this.player.startActionOnCell(this.player.getGameAction());
-            ((BreakingObject) value).getObjects().clear();
+            SocketManager.GAME_SEND_IO_PACKET_TO_MAP(
+                    this.player.getCurMap(), this.player.getId(), "+8378");
+        } catch (RuntimeException | Error notificationError) {
+            try {
+                World.world.logger.error(
+                        "Committed crusher result notification failed",
+                        notificationError);
+            } catch (RuntimeException | Error ignored) {
+                // The exchange is durable; logging must not affect it.
+            }
+        }
+    }
+
+    static boolean isValidCrusherSelection(Map<Integer, GameObject> inventory,
+                                            List<Couple<Integer, Integer>> selection) {
+        if (inventory == null || selection == null || selection.isEmpty())
+            return false;
+
+        Map<Integer, Integer> requestedQuantities = new HashMap<>();
+        for (Couple<Integer, Integer> couple : selection) {
+            if (couple == null || couple.first == null || couple.second == null
+                    || couple.first <= 0 || couple.second <= 0)
+                return false;
+            GameObject object = inventory.get(couple.first);
+            if (!isBreakableCrusherObject(object))
+                return false;
+            try {
+                requestedQuantities.merge(couple.first, couple.second,
+                        Math::addExact);
+            } catch (ArithmeticException overflow) {
+                return false;
+            }
+        }
+
+        for (Map.Entry<Integer, Integer> requested : requestedQuantities.entrySet()) {
+            GameObject object = inventory.get(requested.getKey());
+            if (object == null || object.getQuantity() < requested.getValue())
+                return false;
+        }
+        return true;
+    }
+
+    static boolean isBreakableCrusherObject(GameObject object) {
+        if (object == null || object.getTemplate() == null || object.isAttach()
+                || object.getPosition() != Constant.ITEM_POS_NO_EQUIPED
+                || object.getObvijevanPos() != 0
+                || object.getObvijevanLook() != 0
+                || hasObvijevanStats(object))
+            return false;
+
+        int type = object.getTemplate().getType();
+        // Keep an explicit equipment whitelist.  The former 16..23 range also
+        // admitted pets and Dofus; crushing a pet left its PetEntry orphaned.
+        return (type >= Constant.ITEM_TYPE_AMULETTE
+                && type <= Constant.ITEM_TYPE_BOTTES)
+                || type == Constant.ITEM_TYPE_COIFFE
+                || type == Constant.ITEM_TYPE_CAPE
+                || type == Constant.ITEM_TYPE_HACHE
+                || type == Constant.ITEM_TYPE_SAC_DOS
+                || type == Constant.ITEM_TYPE_BOUCLIER
+                || type == Constant.ITEM_TYPE_ARBALETE
+                || type == Constant.ITEM_TYPE_ARME_MAGIQUE
+                || ((type == Constant.ITEM_TYPE_OUTIL
+                || type == Constant.ITEM_TYPE_PIOCHE
+                || type == Constant.ITEM_TYPE_FAUX)
+                && object.getTemplate().getPACost() > 0);
+    }
+
+    private static boolean hasObvijevanStats(GameObject object) {
+        // Loaded objects do not populate obvijevanPos/look until their stats
+        // have been encoded once.  Inspect the persisted living-object stats
+        // as well, otherwise a freshly loaded attached item could be crushed.
+        for (int stat = 970; stat <= 974; stat++)
+            if (object.getStats().getEffects().containsKey(stat))
+                return true;
+        return false;
+    }
+
+    private static void addCrusherRunes(Fragment fragment, GameObject object,
+                                        int quantity) {
+        for (int k = quantity; k > 0; k--) {
+            for (Map.Entry<Integer, Integer> entry1
+                    : object.getStats().getEffects().entrySet()) {
+                int jet = entry1.getValue();
+                for (Rune rune : Rune.runes) {
+                    if (entry1.getKey() != rune.getCharacteristic())
+                        continue;
+                    if (rune.getId() == 1557 || rune.getId() == 1558
+                            || rune.getId() == 7438) {
+                        double puissance = 1.5 * (Math.pow(
+                                object.getTemplate().getLevel(), 2.0)
+                                / Math.pow(rune.getWeight(), (5.0 / 4.0)))
+                                + ((jet - 1) / rune.getWeight())
+                                * (66.66 - 1.5 * (Math.pow(
+                                object.getTemplate().getLevel(), 2.0)
+                                / Math.pow(rune.getWeight(), (55.0 / 4.0))));
+                        int chance = (int) Math.ceil(puissance);
+
+                        if (chance > 66) chance = 66;
+                        else if (chance <= 0) chance = 1;
+                        if (Formulas.getRandomValue(1, 100) <= chance)
+                            fragment.addRune(rune.getId());
+                    } else {
+                        double val = rune.getBonus();
+                        if (rune.getId() == 7451 || rune.getId() == 10662)
+                            val *= 3.0;
+
+                        double tauxGetMin = World.world
+                                .getTauxObtentionIntermediaire(val, true,
+                                        val != 30);
+                        double tauxGetMax = (tauxGetMin / (2.0 / 3.0)) / 0.9;
+                        int tauxMax = (int) Math.ceil(tauxGetMax);
+                        int tauxGet = (int) Math.ceil(tauxGetMin);
+                        int tauxMin = 2 * (tauxMax - tauxGet) - 2;
+
+                        if (rune.getId() == 7433 || rune.getId() == 7434
+                                || rune.getId() == 7435 || rune.getId() == 7441)
+                            tauxMax++;
+                        if (jet < tauxMin)
+                            continue;
+
+                        for (int i = jet; i > 0; i -= tauxMax) {
+                            int j = i > tauxMax ? tauxMax : i;
+                            if (j == tauxMax)
+                                fragment.addRune(rune.getId());
+                            else if (Formulas.getRandomValue(1, 100)
+                                    < (100 * (tauxMax - j)
+                                    / (tauxMax - tauxMin)))
+                                fragment.addRune(rune.getId());
+                        }
+                    }
+                }
+            }
         }
     }
 
     private void replayCraft() {
-        if (this.player.getExchangeAction() != null && this.player.getExchangeAction().getType() == ExchangeAction.CRAFTING)
-            if (((JobAction) this.player.getExchangeAction().getValue()).getJobCraft() == null)
-                ((JobAction) this.player.getExchangeAction().getValue()).putLastCraftIngredients();
+        JobAction craftAction = this.currentCraftAction();
+        if (craftAction != null && craftAction.getJobCraft() == null)
+            craftAction.putLastCraftIngredients();
+    }
+
+    private JobAction currentCraftAction() {
+        if (this.player == null)
+            return null;
+        ExchangeAction<?> exchangeAction = this.player.getExchangeAction();
+        if (exchangeAction == null || exchangeAction.getType() != ExchangeAction.CRAFTING
+                || !(exchangeAction.getValue() instanceof JobAction))
+            return null;
+        return (JobAction) exchangeAction.getValue();
+    }
+
+    private void movementCraft(String packet, JobAction craftAction) {
+        if (packet.length() < 3)
+            return;
+
+        switch (packet.charAt(2)) {
+            case 'O':
+                if (craftAction.getJobCraft() != null || packet.length() < 5)
+                    return;
+                List<int[]> operations = new ArrayList<>();
+                int cursor = 3;
+                while (cursor < packet.length()) {
+                    char sign = packet.charAt(cursor);
+                    if (sign != '+' && sign != '-')
+                        return;
+
+                    int next = cursor + 1;
+                    while (next < packet.length()
+                            && packet.charAt(next) != '+' && packet.charAt(next) != '-')
+                        next++;
+                    String[] data = packet.substring(cursor + 1, next).split("\\|", -1);
+                    if (data.length == 0 || data.length > 2 || data[0].isEmpty())
+                        return;
+
+                    try {
+                        int guid = Integer.parseInt(data[0]);
+                        if (data.length == 2 && data[1].isEmpty())
+                            return;
+                        int quantity = data.length == 2
+                                ? Integer.parseInt(data[1]) : 1;
+                        if (guid <= 0 || quantity <= 0)
+                            return;
+                        operations.add(new int[]{guid,
+                                sign == '+' ? quantity : -quantity});
+                    } catch (NumberFormatException ignored) {
+                        return;
+                    }
+                    cursor = next;
+                }
+                for (int[] operation : operations)
+                    craftAction.addIngredient(this.player, operation[0], operation[1]);
+                break;
+            case 'R':
+                try {
+                    craftAction.repeatCraft(this.player,
+                            Integer.parseInt(packet.substring(3)));
+                } catch (NumberFormatException ignored) {
+                    // A malformed repeat request must not alter the active craft.
+                }
+                break;
+            case 'r':
+                craftAction.stopCraft();
+                break;
+            default:
+                break;
+        }
     }
 
     private synchronized void movementItemOrKamas(String packet) {
-        if(this.player.getExchangeAction() == null) return;
+        if(this.player.getExchangeAction() == null || packet.length() < 3) return;
         if(packet.contains("NaN")) {
             this.player.sendMessage("Error : StartExchange : (" + this.player.getExchangeAction().getType() + ") : " + packet + "\n send at administreur.");
             return;
@@ -2201,11 +2431,13 @@ public class GameClient {
                 final BreakingObject breakingObject = ((BreakingObject) this.player.getExchangeAction().getValue());
 
                 if (packet.charAt(2) == 'O') {
+                    if (packet.length() < 5 || breakingObject.isRunning())
+                        return;
                     if (packet.charAt(3) == '+') {
-                        if (breakingObject.getObjects().size() >= 8)
-                            return;
-
                         String[] infos = packet.substring(4).split("\\|");
+
+                        if (infos.length != 2)
+                            return;
 
                         try {
                             int id = Integer.parseInt(infos[0]), qua = Integer.parseInt(infos[1]);
@@ -2215,14 +2447,18 @@ public class GameClient {
 
                             GameObject object = this.player.getItems().get(id);
 
-                            if (object == null || object.isAttach())
+                            if (!isBreakableCrusherObject(object) || qua < 1)
                                 return;
-                            if (qua < 1)
+                            int remainingQuantity = object.getQuantity()
+                                    - breakingObject.getSelectedQuantity(id);
+                            if (remainingQuantity < 1)
                                 return;
-                            if (qua > object.getQuantity())
-                                qua = object.getQuantity();
+                            if (qua > remainingQuantity)
+                                qua = remainingQuantity;
 
-                            int type = object.getTemplate().getType();
+                            if (breakingObject.size() >= 8
+                                    && breakingObject.getSelectedQuantity(id) == 0)
+                                return;
 
                             SocketManager.SEND_EMK_MOVE_ITEM(this, 'O', "+", id + "|" + breakingObject.addObject(id, qua));
                         } catch (NumberFormatException e) {
@@ -2232,11 +2468,13 @@ public class GameClient {
                         }
                     } else if (packet.charAt(3) == '-') {
                         String[] infos = packet.substring(4).split("\\|");
+                        if (infos.length != 2)
+                            return;
                         try {
                             int id = Integer.parseInt(infos[0]);
                             int qua = Integer.parseInt(infos[1]);
 
-                            GameObject object = World.world.getGameObject(id);
+                            GameObject object = this.player.getItems().get(id);
 
                             if (object == null)
                                 return;
@@ -2256,12 +2494,21 @@ public class GameClient {
                         }
                     }
                 } else if(packet.charAt(2) == 'R') {
-                    final int count = Integer.parseInt(packet.substring(3));
+                    final int count;
+                    try {
+                        count = Integer.parseInt(packet.substring(3));
+                    } catch (NumberFormatException ignored) {
+                        return;
+                    }
+                    if (!isValidBreakingRepeatCount(count)
+                            || breakingObject.isRunning()
+                            || !breakingObject.hasObjects())
+                        return;
                     breakingObject.setCount(count);
-                    TimerWaiter.addNext(() -> {
-                        this.recursiveBreakingObject(breakingObject, 0, count);
-
-                    }, 0);
+                    breakingObject.setStop(false);
+                    breakingObject.setRunning(true);
+                    TimerWaiter.addNext(() -> this.recursiveBreakingObject(
+                            breakingObject, 0, count), 0);
                 } else if(packet.charAt(2) == 'r') {
                     breakingObject.setStop(true);
                 }
@@ -2621,63 +2868,9 @@ public class GameClient {
                 break;
 
             case ExchangeAction.CRAFTING:
-                int skillID = (Integer) this.player.getExchangeAction().getValue();
-
-                switch(packet.charAt(2)) {
-                    case 'O':
-                        break;
-                    case 'R':
-                        break;
-                    case 'r':
-                        break;
-                }
-
-//                if (packet.charAt(2) == 'O' && ((JobAction) this.player.getExchangeAction().getValue()).getJobCraft() == null) {
-//                    packet = packet.replace("-", ";-").replace("+", ";+").substring(4);
-//
-//                    for(String part : packet.split(";")) {
-//                        try {
-//                            char c = part.charAt(0);
-//                            String[] infos = part.substring(1).split("\\|");
-//                            int id = Integer.parseInt(infos[0]), quantity = 1;
-//                            try {
-//                                quantity = Integer.parseInt(infos[1]);
-//                            } catch (Exception ignored) {}
-//
-//                            if (quantity <= 0) return;
-//                            if (c == '+') {
-//                                if (!this.player.hasItemGuid(id))
-//                                    return;
-//
-//                                GameObject obj = this.player.getItems().get(id);
-//
-//                                if (obj == null || obj.getObvijevanLook() != 0) {
-//                                    player.send("BN");
-//                                    return;
-//                                }
-//                                if (obj.getQuantity() < quantity)
-//                                    quantity = obj.getQuantity();
-//
-//                                ((JobAction) this.player.getExchangeAction().getValue()).addIngredient(this.player, id, quantity);
-//                            } else if (c == '-') {
-//                                ((JobAction) this.player.getExchangeAction().getValue()).addIngredient(this.player, id, -quantity);
-//                            }
-//                        } catch(Exception e) {
-//                            e.printStackTrace();
-//                        }
-//                    }
-//                } else if (packet.charAt(2) == 'R') {
-//                    if (((JobAction) this.player.getExchangeAction().getValue()).getJobCraft() == null) {
-//                        ((JobAction) this.player.getExchangeAction().getValue()).setJobCraft(((JobAction) this.player.getExchangeAction().getValue()).oldJobCraft);
-//                    }
-//                    ((JobAction) this.player.getExchangeAction().getValue()).getJobCraft().setAction(Integer.parseInt(packet.substring(3)));
-//                } else if (packet.charAt(2) == 'r') {
-//                    if (this.player.getExchangeAction().getValue() != null) {
-//                        if (((JobAction) this.player.getExchangeAction().getValue()).getJobCraft() != null) {
-//                            ((JobAction) this.player.getExchangeAction().getValue()).broken = true;
-//                        }
-//                    }
-//                }
+                JobAction craftAction = this.currentCraftAction();
+                if (craftAction != null && craftAction.isCraft())
+                    this.movementCraft(packet, craftAction);
                 break;
 
             case ExchangeAction.IN_BANK:
@@ -2876,6 +3069,8 @@ public class GameClient {
                         }
                         break;
                     case 'G'://Kamas
+                        if (this.player.getExchangeAction().getType() == ExchangeAction.CRAFTING_SECURE_WITH)
+                            return;
                         try {
                             if(packet.substring(3).contains("NaN")) return;
                             long numb = Integer.parseInt(packet.substring(3));
@@ -2900,16 +3095,30 @@ public class GameClient {
             if (breakingObject.isStop()) this.player.send("Ea2");
             else this.player.send("Ea1");
             breakingObject.setStop(false);
+            breakingObject.setRunning(false);
             return;
         }
 
         TimerWaiter.addNext(() -> {
             this.player.send("EA" + (breakingObject.getCount() - i));
-            ArrayList<Couple<Integer, Integer>> objects = new ArrayList<>(breakingObject.getObjects());
-            this.ready();
+            ArrayList<Couple<Integer, Integer>> objects =
+                    breakingObject.snapshotObjects();
+            if (!this.breakObjects(breakingObject)) {
+                breakingObject.setStop(false);
+                breakingObject.setRunning(false);
+                this.player.send("Ea2");
+                return;
+            }
+            // Restore the selection only after the complete previous iteration
+            // succeeded.  A missing GUID or quantity therefore stops repetition
+            // instead of reviving a stale selection.
             breakingObject.setObjects(objects);
             this.recursiveBreakingObject(breakingObject, i + 1, count);
         }, 1000, TimeUnit.MILLISECONDS);
+    }
+
+    static boolean isValidBreakingRepeatCount(int count) {
+        return count >= 1 && count <= MAX_BREAKING_REPETITIONS;
     }
 
     private synchronized void movementItemOrKamasDons(String packet) {
@@ -3210,167 +3419,145 @@ public class GameClient {
         }
     }
 
+    private void requestSecureCraft(String packet, boolean requesterIsArtisan) {
+        String[] fields = packet.split("\\|", -1);
+        if (fields.length != 3) {
+            SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'E');
+            return;
+        }
+
+        final int targetId;
+        final int skillId;
+        try {
+            targetId = Integer.parseInt(fields[1]);
+            skillId = Integer.parseInt(fields[2]);
+        } catch (NumberFormatException ignored) {
+            SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'E');
+            return;
+        }
+
+        Player target = World.world.getPlayer(targetId);
+        if (target == null || target == this.player || skillId <= 0) {
+            SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'E');
+            return;
+        }
+
+        Player artisan = requesterIsArtisan ? this.player : target;
+        Player firstLock = this.player.getId() < target.getId()
+                ? this.player : target;
+        Player secondLock = firstLock == this.player ? target : this.player;
+
+        // Two clients can invite the same artisan at the same time.  Lock both
+        // participants in a stable order so validation and invitation install
+        // form one operation and cannot overwrite another exchange.
+        synchronized (firstLock) {
+            synchronized (secondLock) {
+                if (this.player.getExchangeAction() != null
+                        || target.getExchangeAction() != null
+                        || this.player.isAway() || target.isAway()) {
+                    SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'O');
+                    return;
+                }
+                if (!this.player.isOnline() || !target.isOnline()
+                        || this.player.getFight() != null || target.getFight() != null
+                        || this.player.getCurMap() == null
+                        || this.player.getCurMap() != target.getCurMap()) {
+                    SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'E');
+                    return;
+                }
+                if (!canOfferSecureCraft(artisan, skillId)) {
+                    this.player.send("ERET");
+                    return;
+                }
+
+                this.player.setExchangeAction(new ExchangeAction<>(
+                        ExchangeAction.CRAFTING_SECURE_WITH, targetId));
+                target.setExchangeAction(new ExchangeAction<>(
+                        ExchangeAction.CRAFTING_SECURE_WITH, this.player.getId()));
+
+                this.player.getIsCraftingType().clear();
+                target.getIsCraftingType().clear();
+                this.player.getIsCraftingType().add(requesterIsArtisan ? 12 : 13);
+                target.getIsCraftingType().add(requesterIsArtisan ? 13 : 12);
+                this.player.getIsCraftingType().add(skillId);
+                target.getIsCraftingType().add(skillId);
+
+                SocketManager.GAME_SEND_EXCHANGE_REQUEST_OK(this,
+                        this.player.getId(), targetId,
+                        requesterIsArtisan ? 12 : 13);
+                SocketManager.GAME_SEND_EXCHANGE_REQUEST_OK(target.getGameClient(),
+                        this.player.getId(), targetId,
+                        requesterIsArtisan ? 13 : 12);
+            }
+        }
+    }
+
+    static boolean canOfferSecureCraft(Player artisan, int skillId) {
+        if (artisan == null || skillId <= 0 || artisan.getCurMap() == null
+                || artisan.getCurCell() == null
+                || artisan.getMetiers() == null)
+            return false;
+
+        GameObject tool = artisan.getObjetByPos(Constant.ITEM_POS_ARME);
+        if (tool == null || tool.getTemplate() == null)
+            return false;
+
+        GameMap map = artisan.getCurMap();
+        Map<Integer, Integer> workshops = map.data == null
+                ? null : map.data.interactiveObjects();
+        if (workshops == null || workshops.isEmpty())
+            return false;
+
+        int artisanCellId = artisan.getCurCell().getId();
+        int toolTemplateId = tool.getTemplate().getId();
+        for (JobStat jobStat : artisan.getMetiers().values()) {
+            if (jobStat == null || !jobStat.isValidMapAction(skillId))
+                continue;
+            Job job = jobStat.getTemplate();
+            if (job == null || !job.isValidTool(toolTemplateId))
+                continue;
+
+            for (Map.Entry<Integer, Integer> workshop : workshops.entrySet()) {
+                Integer cellId = workshop.getKey();
+                Integer spriteId = workshop.getValue();
+                if (cellId == null || spriteId == null || map.getCase(cellId) == null)
+                    continue;
+                List<Integer> jobSkills = job.getSkills().get(spriteId);
+                if (jobSkills == null || !jobSkills.contains(skillId))
+                    continue;
+
+                // Job data alone is not authoritative: require the map sprite
+                // to resolve to a registered interactive object which itself
+                // exposes the requested skill, exactly as startActionOnCell.
+                boolean objectAllowsSkill = World.world.getObjectBySprite(spriteId)
+                        .map(object -> object.allowSkill(skillId))
+                        .orElse(false);
+                if (!objectAllowsSkill)
+                    continue;
+
+                if (PathFinding.getAllCaseIdAllDirrection(cellId, map)
+                        .contains(artisanCellId))
+                    return true;
+            }
+        }
+        return false;
+    }
+
     private void request(String packet) {
+        if (packet.length() < 4) {
+            SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'E');
+            return;
+        }
         if (this.player.getExchangeAction() != null && this.player.getExchangeAction().getType() != ExchangeAction.AUCTION_HOUSE_BUYING && this.player.getExchangeAction().getType() != ExchangeAction.AUCTION_HOUSE_SELLING) {
             SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'O');
             return;
         }
 
         if (packet.substring(2, 4).equals("13") && this.player.getExchangeAction() == null) { // Craft s?curis? : celui qui n'a pas le job ( this.player ) souhaite invit? player
-            try {
-                String[] split = packet.split("\\|");
-                int id = Integer.parseInt(split[1]);
-                int skill = Integer.parseInt(split[2]);
-
-                Player player = World.world.getPlayer(id);
-
-                if (player == null) {
-                    SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'E');
-                    return;
-                }
-                if (player.getCurMap() != this.player.getCurMap() || !player.isOnline()) {
-                    SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'E');
-                    return;
-                }
-                if (player.isAway() || this.player.isAway()) {
-                    SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'O');
-                    return;
-                }
-
-                List<Job> jobs = player.getJobs();
-
-                if (jobs == null || jobs.isEmpty())
-                    return;
-
-                GameObject object = player.getObjetByPos(Constant.ITEM_POS_ARME);
-
-                if (object == null) {
-                    this.player.send("BN");
-                    return;
-                }
-                boolean ok = false;
-
-                for (Job job : jobs) {
-                    if (job.getSkills().isEmpty())
-                        continue;
-                    if (!job.isValidTool(object.getTemplate().getId()))
-                        continue;
-
-                    for (GameCase cell : this.player.getCurMap().getCases()) {
-//                        if (cell.getObject() != null) {
-//                            if (cell.getObject().getTemplate() != null) {
-//                                int io = cell.getObject().getTemplate().getId();
-//                                ArrayList<Integer> skills = job.getSkills().get(io);
-//
-//                                if (skills != null) {
-//                                    for (int arg : skills) {
-//                                        if (arg == skill
-//                                                && PathFinding.getDistanceBetween(player.getCurMap(), player.getCurCell().getId(), cell.getId()) < 4) {
-//                                            ok = true;
-//                                            break;
-//                                        }
-//                                    }
-//                                }
-//                            }
-//                        }
-                    }
-
-                    if (ok)
-                        break;
-                }
-
-                if (!ok) {
-                    this.player.send("ERET");
-                    return;
-                }
-
-                ExchangeAction<Integer> exchangeAction = new ExchangeAction<>(ExchangeAction.CRAFTING_SECURE_WITH, id);
-                this.player.setExchangeAction(exchangeAction);
-                ExchangeAction<Integer> exchangeAction1 = new ExchangeAction<>(ExchangeAction.CRAFTING_SECURE_WITH, this.player.getId());
-                player.setExchangeAction(exchangeAction1);
-
-                this.player.getIsCraftingType().add(13);
-                player.getIsCraftingType().add(12);
-                this.player.getIsCraftingType().add(skill);
-                player.getIsCraftingType().add(skill);
-
-                SocketManager.GAME_SEND_EXCHANGE_REQUEST_OK(this, this.player.getId(), id, 12);
-                SocketManager.GAME_SEND_EXCHANGE_REQUEST_OK(player.getGameClient(), this.player.getId(), id, 12);
-            } catch (NumberFormatException e) {
-                e.printStackTrace();
-            }
+            this.requestSecureCraft(packet, false);
             return;
         } else if (packet.substring(2, 4).equals("12") && this.player.getExchangeAction() == null) { // Craft s?curis? : celui qui ? le job ( this.player ) souhaite invit? player
-            try {
-                String[] split = packet.split("\\|");
-                int id = Integer.parseInt(split[1]);
-                int skill = Integer.parseInt(split[2]);
-
-                Player player = World.world.getPlayer(id);
-
-                if (player == null) {
-                    SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'E');
-                    return;
-                }
-                if (player.getCurMap() != this.player.getCurMap() || !player.isOnline()) {
-                    SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'E');
-                    return;
-                }
-                if (player.isAway() || this.player.isAway()) {
-                    SocketManager.GAME_SEND_EXCHANGE_REQUEST_ERROR(this, 'O');
-                    return;
-                }
-
-                List<Job> jobs = this.player.getJobs();
-                if (jobs == null || jobs.isEmpty()) return;
-
-                GameObject object = this.player.getObjetByPos(Constant.ITEM_POS_ARME);
-                if (object == null) return;
-
-                boolean ok = false;
-
-                for (Job job : jobs) {
-                    if (job.getSkills().isEmpty() || !job.isValidTool(object.getTemplate().getId())) continue;
-//                    for (GameCase cell : this.player.getCurMap().getCases()) {
-//                        if (cell.getObject() != null) {
-//                            if (cell.getObject().getTemplate() != null) {
-//                                int io = cell.getObject().getTemplate().getId();
-//                                ArrayList<Integer> skills = job.getSkills().get(io);
-//
-//                                if (skills != null) {
-//                                    for (int arg : skills) {
-//                                        if (arg == skill && PathFinding.getDistanceBetween(this.player.getCurMap(), this.player.getCurCell().getId(), cell.getId()) < 4) {
-//                                            ok = true;
-//                                            break;
-//                                        }
-//                                    }
-//                                }
-//                            }
-//                        }
-//                    }
-                    if (ok) break;
-                }
-
-                if (!ok) {
-                    this.player.sendMessage(player.getLang().trans("game.gameclient.atelier.tofar"));
-                    return;
-                }
-
-                ExchangeAction<Integer> exchangeAction = new ExchangeAction<>(ExchangeAction.CRAFTING_SECURE_WITH, id);
-                this.player.setExchangeAction(exchangeAction);
-                exchangeAction = new ExchangeAction<>(ExchangeAction.CRAFTING_SECURE_WITH, this.player.getId());
-                player.setExchangeAction(exchangeAction);
-
-                this.player.getIsCraftingType().add(12);
-                player.getIsCraftingType().add(13);
-                this.player.getIsCraftingType().add(skill);
-                player.getIsCraftingType().add(skill);
-
-                SocketManager.GAME_SEND_EXCHANGE_REQUEST_OK(this, this.player.getId(), id, 12);
-                SocketManager.GAME_SEND_EXCHANGE_REQUEST_OK(player.getGameClient(), this.player.getId(), id, 13);
-            } catch (NumberFormatException e) {
-                e.printStackTrace();
-            }
+            this.requestSecureCraft(packet, true);
             return;
         } else if (packet.substring(2, 4).equals("11")) {//Ouverture HDV achat
             if(this.player.getExchangeAction() != null) leaveExchange(this.player);
@@ -3672,6 +3859,8 @@ public class GameClient {
             case ExchangeAction.CRAFTING:
                 player.send("EV");
                 player.setDoAction(false);
+                if (exchangeAction.getValue() instanceof JobAction)
+                    ((JobAction) exchangeAction.getValue()).cancelCraft();
                 break;
 
             case ExchangeAction.BREAKING_OBJECTS:
@@ -3742,6 +3931,7 @@ public class GameClient {
 
 
         player.setExchangeAction(null);
+        player.setAway(false);
         DatabaseManager.get(PlayerData.class).update(player);
     }
 
@@ -4186,8 +4376,8 @@ public class GameClient {
                 break;
 
             case 500://Action Sur Map
-                gameAction(GA);
-                this.player.setGameAction(GA);
+                if (gameAction(GA))
+                    this.player.setGameAction(GA);
                 break;
 
             case 507://Panneau int?rieur de la maison
@@ -4430,7 +4620,7 @@ public class GameClient {
         }
     }
 
-    private synchronized void gameAction(GameAction GA) {
+    private synchronized boolean gameAction(GameAction GA) {
         String packet = GA.packet.substring(5);
         int cellID = -1;
         int actionID = -1;
@@ -4444,17 +4634,19 @@ public class GameClient {
 
         if (walk) {
             actions.put(-1, GA);
-            return;
+            return true;
         }
 
         //Si packet invalide, ou cellule introuvable
         if (cellID == -1 || actionID == -1 || this.player == null || this.player.getCurMap() == null || this.player.getCurMap().getCase(cellID) == null)
-            return;
+            return false;
 
         GA.args = cellID + ";" + actionID;
+        if (this.player.isDead() != 0 || !this.player.startActionOnCell(GA))
+            return false;
+
         this.player.getGameClient().addAction(GA);
-        if (this.player.isDead() == 0)
-            this.player.startActionOnCell(GA);
+        return true;
     }
 
     private void houseAction(String packet) {
@@ -6229,7 +6421,9 @@ public class GameClient {
             return;
         }
         if (obj.getPosition() != Constant.ITEM_POS_NO_EQUIPED) {
+            int previousPosition = obj.getPosition();
             obj.setPosition(Constant.ITEM_POS_NO_EQUIPED);
+            cleanupRemovedEquipmentEffects(this.player, obj, previousPosition);
             SocketManager.GAME_SEND_OBJET_MOVE_PACKET(this.player, obj);
             if (obj.getPosition() == Constant.ITEM_POS_ARME
                     || obj.getPosition() == Constant.ITEM_POS_COIFFE
@@ -6268,6 +6462,135 @@ public class GameClient {
                 && item.getPosition() != targetPosition);
     }
 
+    static boolean hasClassSpellBonuses(ObjectTemplate template) {
+        if (template == null)
+            return false;
+        int setId = template.getPanoId();
+        return setId >= 81 && setId <= 92;
+    }
+
+    private static boolean isClassSpellEffect(int effect) {
+        return effect >= 281 && effect <= 292;
+    }
+
+    static void applyClassSpellBonuses(Player player, ObjectTemplate template) {
+        if (player == null || !hasClassSpellBonuses(template))
+            return;
+
+        for (String stat : template.getStrTemplate().split(",")) {
+            String[] values = stat.split("#");
+            int effect = Integer.parseInt(values[0], 16);
+            if (!isClassSpellEffect(effect))
+                continue;
+            int spell = Integer.parseInt(values[1], 16);
+            int value = Integer.parseInt(values[3], 16);
+            if (effect == 289)
+                value = 1;
+            SocketManager.SEND_SB_SPELL_BOOST(player, effect + ";" + spell + ";" + value);
+            player.addObjectClassSpell(spell, effect, value);
+        }
+        player.addObjectClass(template.getId());
+    }
+
+    public static void rebuildClassSpellBonuses(Player player) {
+        if (player == null)
+            return;
+
+        player.getObjectsClassSpell().clear();
+        for (int position = Constant.ITEM_POS_ANNEAU1;
+             position <= Constant.ITEM_POS_CAPE; position++) {
+            GameObject equipped = player.getObjetByPos(position);
+            if (equipped != null)
+                applyClassSpellBonuses(player, equipped.getTemplate());
+        }
+    }
+
+    public static void removeClassSpellBonuses(Player player, ObjectTemplate template) {
+        if (player == null || !hasClassSpellBonuses(template))
+            return;
+
+        for (String stat : template.getStrTemplate().split(",")) {
+            String[] values = stat.split("#");
+            int effect = Integer.parseInt(values[0], 16);
+            if (!isClassSpellEffect(effect))
+                continue;
+            int spell = Integer.parseInt(values[1], 16);
+            SocketManager.SEND_SB_SPELL_BOOST(player, effect + ";" + spell + ";0");
+        }
+        player.removeObjectClass(template.getId());
+        rebuildClassSpellBonuses(player);
+    }
+
+    static int incarnationMorphId(int templateId) {
+        switch (templateId) {
+            case 9544:
+                return 1;
+            case 9545:
+                return 5;
+            case 9546:
+                return 4;
+            case 9547:
+                return 3;
+            case 9548:
+                return 2;
+            case 10125:
+                return 7;
+            case 10126:
+                return 6;
+            case 10127:
+                return 8;
+            case 10133:
+                return 9;
+            default:
+                return -1;
+        }
+    }
+
+    private static void applyIncarnationWeaponEffects(Player player, GameObject weapon) {
+        if (player == null || weapon == null || weapon.getTemplate() == null)
+            return;
+
+        int morphId = incarnationMorphId(weapon.getTemplate().getId());
+        if (morphId != -1)
+            player.setFullMorph(morphId, false, false);
+    }
+
+    public static void cleanupRemovedEquipmentEffects(Player player, GameObject object,
+                                                      int previousPosition) {
+        if (player == null || object == null || object.getTemplate() == null)
+            return;
+        if (previousPosition == Constant.ITEM_POS_NO_EQUIPED)
+            return;
+
+        ObjectTemplate template = object.getTemplate();
+        removeClassSpellBonuses(player, template);
+
+        int incarnationMorphId = incarnationMorphId(template.getId());
+        if (previousPosition == Constant.ITEM_POS_ARME
+                && incarnationMorphId != -1
+                && player.getMorphMode()
+                && player.getMorphId() == incarnationMorphId)
+            player.unsetFullMorph();
+    }
+
+    /**
+     * Repairs incarnation morphs persisted by older equipment transitions. Other
+     * full morphs are intentionally left alone, even when no incarnation is worn.
+     */
+    public static void reconcileIncarnationMorph(Player player) {
+        if (player == null || !player.getMorphMode())
+            return;
+
+        int morphId = player.getMorphId();
+        if (morphId < 1 || morphId > 9)
+            return;
+
+        GameObject weapon = player.getObjetByPos(Constant.ITEM_POS_ARME);
+        if (weapon == null || weapon.getTemplate() == null
+                || incarnationMorphId(weapon.getTemplate().getId()) != morphId)
+            player.unsetFullMorph();
+    }
+
     public synchronized void movementObject(String packet) {
         String[] infos = packet.substring(2).split("" + (char) 0x0A)[0].split("\\|");
         try {
@@ -6278,6 +6601,9 @@ public class GameClient {
 
             GameObject object = this.player.getItems().get(id);
             if (object == null || player.getExchangeAction() != null)
+                return;
+            int previousPosition = object.getPosition();
+            if (previousPosition == position)
                 return;
             if (this.player.getFight() != null)
                 if (this.player.getFight().getState() > Constant.FIGHT_STATE_ACTIVE)
@@ -6375,38 +6701,14 @@ public class GameClient {
             /* End feed pet **/
             } else {
                 ObjectTemplate template = object.getTemplate();
-                int set = template.getPanoId();
+                boolean equipping = position != Constant.ITEM_POS_NO_EQUIPED;
 
-                if (set >= 81 && set <= 92 && position != Constant.ITEM_POS_NO_EQUIPED) {
-                    String[] stats = template.getStrTemplate().split(",");
-
-                    for (String stat : stats) {
-                        String[] split = stat.split("#");
-                        int effect = Integer.parseInt(split[0], 16),spell = Integer.parseInt(split[1], 16);
-                        int value = Integer.parseInt(split[3], 16);
-                        if(effect == 289)
-                            value = 1;
-                        SocketManager.SEND_SB_SPELL_BOOST(this.player, effect + ";" + spell + ";" + value);
-                        this.player.addObjectClassSpell(spell, effect, value);
-                    }
-                    this.player.addObjectClass(template.getId());
-                }
-                if (set >= 81 && set <= 92 && position == Constant.ITEM_POS_NO_EQUIPED) {
-                    String[] stats = template.getStrTemplate().split(",");
-
-                    for (String stat : stats) {
-                        String[] split = stat.split("#");
-                        int effect = Integer.parseInt(split[0], 16),spell = Integer.parseInt(split[1], 16);
-                        SocketManager.SEND_SB_SPELL_BOOST(this.player, effect + ";" + spell + ";0");
-                        this.player.removeObjectClassSpell(Integer.parseInt(split[1], 16));
-                    }
-                    this.player.removeObjectClass(template.getId());
-                }
-                if (!Constant.isValidPlaceForItem(object.getTemplate(), position) && position != Constant.ITEM_POS_NO_EQUIPED && object.getTemplate().getType() != 113)
+                if (equipping && !Constant.isValidPlaceForItem(object.getTemplate(), position)
+                        && object.getTemplate().getType() != 113)
                     return;
 
-
-                if (!World.world.getConditionManager().validConditions(this.player, object.getTemplate().getConditions())) {
+                if (equipping && !World.world.getConditionManager().validConditions(
+                        this.player, object.getTemplate().getConditions())) {
                     SocketManager.GAME_SEND_Im_PACKET(this.player, "119|44;"+object.getTemplate().getId()); // si le this.player ne v?rifie pas les conditions diverses
                     return;
                 }
@@ -6430,7 +6732,7 @@ public class GameClient {
 
                 }
 
-                if (object.getTemplate().getLevel() > this.player.getLevel()) {// si le this.player n'a pas le level
+                if (equipping && object.getTemplate().getLevel() > this.player.getLevel()) {// si le this.player n'a pas le level
                     SocketManager.GAME_SEND_OAEL_PACKET(this);
                     return;
                 }
@@ -6492,8 +6794,7 @@ public class GameClient {
                 {
                     equipBack = exObj.getGuid() != object.getGuid();
                     GameObject obj2;
-                    ObjectTemplate exObjTpl = exObj.getTemplate();
-                    int idSetExObj = exObj.getTemplate().getPanoId();
+                    int exObjPosition = exObj.getPosition();
                     if ((obj2 = this.player.getSimilarItem(exObj)) != null)//On le poss?de deja
                     {
                         obj2.setQuantity(obj2.getQuantity()
@@ -6506,21 +6807,10 @@ public class GameClient {
                     //On ne le poss?de pas
                     {
                         exObj.setPosition(Constant.ITEM_POS_NO_EQUIPED);
-                        if ((idSetExObj >= 81 && idSetExObj <= 92)
-                                || (idSetExObj >= 201 && idSetExObj <= 212)) {
-                            String[] stats = exObjTpl.getStrTemplate().split(",");
-                            for (String stat : stats) {
-                                String[] val = stat.split("#");
-                                String modifi = Integer.parseInt(val[0], 16)
-                                        + ";" + Integer.parseInt(val[1], 16)
-                                        + ";0";
-                                SocketManager.SEND_SB_SPELL_BOOST(this.player, modifi);
-                                this.player.removeObjectClassSpell(Integer.parseInt(val[1], 16));
-                            }
-                            this.player.removeObjectClass(exObjTpl.getId());
-                        }
                         SocketManager.GAME_SEND_OBJET_MOVE_PACKET(this.player, exObj);
                     }
+                    if (equipBack)
+                        cleanupRemovedEquipmentEffects(this.player, exObj, exObjPosition);
                     if (this.player.getObjetByPos(Constant.ITEM_POS_ARME) == null)
                         SocketManager.GAME_SEND_OT_PACKET(this, -1);
 
@@ -6594,42 +6884,18 @@ public class GameClient {
                         }
                     }
                 }
-                if (position == Constant.ITEM_POS_ARME) {
-                    switch (object.getTemplate().getId())
-                    //Incarnation
-                    {
-                        case 9544: // Tourmenteur t?nebres
-                            this.player.setFullMorph(1, false, false);
-                            break;
-                        case 9545: // Tourmenteur feu
-                            this.player.setFullMorph(5, false, false);
-                            break;
-                        case 9546: // Tourmenteur feuille
-                            this.player.setFullMorph(4, false, false);
-                            break;
-                        case 9547: // Tourmenteur gthiste
-                            this.player.setFullMorph(3, false, false);
-                            break;
-                        case 9548: // Tourmenteur terre
-                            this.player.setFullMorph(2, false, false);
-                            break;
-                        case 10125: // Bandit Archer
-                            this.player.setFullMorph(7, false, false);
-                            break;
-                        case 10126: // Bandit Fine Lame
-                            this.player.setFullMorph(6, false, false);
-                            break;
-                        case 10127: // Bandit Baroudeur
-                            this.player.setFullMorph(8, false, false);
-                            break;
-                        case 10133: // Bandit Ensorcelleur
-                            this.player.setFullMorph(9, false, false);
-                            break;
-                    }
-                } else {// Tourmenteur ; on d?morphe
-                    if (Constant.isIncarnationWeapon(object.getTemplate().getId()))
-                        this.player.unsetFullMorph();
+                if (!equipBack) {
+                    if (equipping)
+                        rebuildClassSpellBonuses(this.player);
+                    else
+                        cleanupRemovedEquipmentEffects(this.player, object, previousPosition);
                 }
+                // N'applique l'incarnation qu'une fois l'arme réellement placée.
+                // Lors d'un remplacement, le premier passage ne fait que libérer
+                // la case et le second équipe l'objet entrant.
+                if (!equipBack && previousPosition != Constant.ITEM_POS_ARME
+                        && object.getPosition() == Constant.ITEM_POS_ARME)
+                    applyIncarnationWeaponEffects(this.player, object);
 
                 if (object.getTemplate().getId() == 2157) {
                     if (position == Constant.ITEM_POS_COIFFE) {
@@ -7603,47 +7869,14 @@ public class GameClient {
             World.world.logger.debug("Game >  Delete action id : " + GA.id);
         actions.remove(GA.id);
 
-        if (actions.get(-1) != null && GA.actionId == 1)//Si la queue est pas vide
-        {
-            //et l'actionID remove = Deplacement
-            //int cellID = -1;
-            String packet = actions.get(-1).packet.substring(5);
-            int cell = Integer.parseInt(packet.split(";")[0]);
-            ArrayList<Integer> list = null;
-            try {
-                list = PathFinding.getAllCaseIdAllDirrection(cell, this.player.getCurMap());
-                //cellID = Pathfinding.getNearestCellAroundGA(this.player.getCurMap(), cell, this.player.getCurCell().getId(), null);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-
-            //cellID == this.player.getCurCell().getId()
-            if ((list != null && list.contains(this.player.getCurCell().getId())) || distPecheur())// et on verrifie si le joueur = cellI
-                this.player.getGameClient().gameAction(actions.get(-1));// On renvois comme demande
-                //Risqu? mais bon pas le choix si on veut pas ?tre emmerder avec les bl?s. Parser le bon type ?
-                //this.player.getGameClient().gameAction(actions.getWaitingAccount(-1));// On renvois comme demande
-            actions.remove(-1);
+        if (actions.get(-1) != null && GA.actionId == 1) {
+            // Revalidate the queued object action after movement. The server-side
+            // range check handles both adjacent objects and fishing rod range.
+            GameAction waitingAction = actions.remove(-1);
+            if (!this.player.getGameClient().gameAction(waitingAction)
+                    && this.player.getGameAction() == waitingAction)
+                this.player.setGameAction(null);
         }
-    }
-
-    private boolean distPecheur() {
-        try {
-            String packet = actions.get(-1).packet.substring(5);
-            JobStat SM = this.player.getMetierBySkill(Integer.parseInt(packet.split(";")[1]));
-            if (SM == null)
-                return false;
-            if (SM.getTemplate() == null)
-                return false;
-            if (SM.getTemplate().getId() != 36)
-                return false;
-            int dis = PathFinding.getDistanceBetween(this.player.getCurMap(), Integer.parseInt(packet.split(";")[0]), this.player.getCurCell().getId());
-            int dist = JobConstant.getDistCanne(this.player.getObjetByPos(Constant.ITEM_POS_ARME).getTemplate().getId());
-            if (dis <= dist)
-                return true;
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return false;
     }
     
     public void changeName(String packet) {

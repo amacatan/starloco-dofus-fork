@@ -33,6 +33,20 @@ public class SpellEffect implements Cloneable {
 	private boolean debuffable = true;
 	private GameCase cell = null;
 
+	static int percentageOf(int hitPoints, int percentage) {
+		long result = (long) hitPoints * percentage / 100L;
+		if (result > Integer.MAX_VALUE)
+			return Integer.MAX_VALUE;
+		if (result < Integer.MIN_VALUE)
+			return Integer.MIN_VALUE;
+		return (int) result;
+	}
+
+	static int cappedHealing(int requestedHealing, int currentHitPoints, int maximumHitPoints) {
+		long missingHitPoints = (long) maximumHitPoints - currentHitPoints;
+		return (int) Math.max(0L, Math.min((long) requestedHealing, missingHitPoints));
+	}
+
 	public SpellEffect(int aID, String aArgs, int aSpell, int aSpellLevel) {
 		effectID = aID;
 		args = aArgs;
@@ -1340,7 +1354,7 @@ public class SpellEffect implements Cloneable {
 					resF += target.getTotalStats().getEffect(Constant.STATS_ADD_R_PVP_EAU);
 				}
 				int dmg = Formulas.getRandomJet(caster, target, args.split(";")[5]);//%age de pdv inflig�
-				int val = caster.getPdv() / 100 * dmg;//Valeur des d�gats
+				int val = percentageOf(caster.getPdv(), dmg);//Valeur des d�gats
 				//retrait de la r�sist fixe
 				val -= resF;
 				int reduc = (int) (((float) val) / (float) 100) * resP;//Reduc %resis
@@ -1399,7 +1413,7 @@ public class SpellEffect implements Cloneable {
 					resF += target.getTotalStats().getEffect(Constant.STATS_ADD_R_PVP_TER);
 				}
 				int dmg = Formulas.getRandomJet(caster, target, args.split(";")[5]);//%age de pdv inflig�
-				int val = caster.getPdv() / 100 * dmg;//Valeur des d�gats
+				int val = percentageOf(caster.getPdv(), dmg);//Valeur des d�gats
 				//retrait de la r�sist fixe
 				val -= resF;
 				int reduc = (int) (((float) val) / (float) 100) * resP;//Reduc %resis
@@ -1458,7 +1472,7 @@ public class SpellEffect implements Cloneable {
 					resF += target.getTotalStats().getEffect(Constant.STATS_ADD_R_PVP_AIR);
 				}
 				int dmg = Formulas.getRandomJet(caster, target, args.split(";")[5]);//%age de pdv inflig�
-				int val = caster.getPdv() / 100 * dmg;//Valeur des d�gats
+				int val = percentageOf(caster.getPdv(), dmg);//Valeur des d�gats
 				//retrait de la r�sist fixe
 				val -= resF;
 				int reduc = (int) (((float) val) / (float) 100) * resP;//Reduc %resis
@@ -1514,7 +1528,7 @@ public class SpellEffect implements Cloneable {
 					resF += target.getTotalStats().getEffect(Constant.STATS_ADD_R_PVP_FEU);
 				}
 				int dmg = Formulas.getRandomJet(caster, target, args.split(";")[5]);//%age de pdv inflig�
-				int val = caster.getPdv() / 100 * dmg;//Valeur des d�gats
+				int val = percentageOf(caster.getPdv(), dmg);//Valeur des d�gats
 				//retrait de la r�sist fixe
 				val -= resF;
 				int reduc = (int) (((float) val) / (float) 100) * resP;//Reduc %resis
@@ -1573,7 +1587,7 @@ public class SpellEffect implements Cloneable {
 					resF += target.getTotalStats().getEffect(Constant.STATS_ADD_R_PVP_NEU);
 				}
 				int dmg = Formulas.getRandomJet(caster, target, args.split(";")[5]);//%age de pdv inflig�
-				int val = caster.getPdv() / 100 * dmg;//Valeur des d�gats
+				int val = percentageOf(caster.getPdv(), dmg);//Valeur des d�gats
 				//retrait de la r�sist fixe
 				val -= resF;
 				int reduc = (int) (((float) val) / (float) 100) * resP;//Reduc %resis
@@ -1619,7 +1633,7 @@ public class SpellEffect implements Cloneable {
 		if (turns <= 0)//Si Direct
 		{
 			int pAge = Formulas.getRandomJet(caster, null, args.split(";")[5]);
-			int val = pAge * (caster.getPdv() / 100);
+			final int val = percentageOf(caster.getPdv(), pAge);
 			//Calcul des Doms recus par le lanceur
 			int finalDommage = applyOnHitBuffs(val, caster, caster, fight, Constant.ELEMENT_NULL);//S'il y a des buffs sp�ciaux
 
@@ -1632,11 +1646,10 @@ public class SpellEffect implements Cloneable {
 
 			//Application du soin
 			for (Fighter target : targets) {
-				if ((val + target.getPdv()) > target.getPdvMax())
-					val = target.getPdvMax() - target.getPdv();//Target va mourrir
-				target.removePdv(caster, -val);
+				int healing = cappedHealing(val, target.getPdv(), target.getPdvMax());
+				target.removePdv(caster, -healing);
 				SocketManager.GAME_SEND_GA_PACKET_TO_FIGHT(fight, 7, 100, caster.getId()
-						+ "", target.getId() + ",+" + val);
+						+ "", target.getId() + ",+" + healing);
 			}
 			if (caster.getPdv() <= 0)
 				fight.onFighterDie(caster, caster);
@@ -4130,7 +4143,7 @@ public class SpellEffect implements Cloneable {
 
 				int dmg = Formulas.getRandomJet(caster, target, args.split(";")[5]);// % de pdv
 				dmg = getMaxMinSpell(target, dmg);
-				int val = caster.getPdv() / 100 * dmg;// Valor de da�os
+				int val = percentageOf(caster.getPdv(), dmg);// Valor de da�os
 				val -= resF;
 				int reduc = (int) (((float) val) / (float) 100) * resP;// Reduc
 				// %resis

@@ -365,25 +365,7 @@ public class ObjectTemplate {
                 Stats.put(Constant.STATS_NIVEAU, 1);
                 item = new GameObject(-1, getId(), qua, Constant.ITEM_POS_NO_EQUIPED, generateNewStatsFromTemplate(getStrTemplate(), useMax), getEffectTemplate(getStrTemplate()), Stats, new HashMap<>(), 0);
             } else {
-                Map<Integer, String> Stat = new HashMap<>();
-                switch (getType()) {
-                    case 1:
-                    case 2:
-                    case 3:
-                    case 4:
-                    case 5:
-                    case 6:
-                    case 7:
-                    case 8:
-                        if(getStrTemplate() == null || getStrTemplate().equalsIgnoreCase("") ||getStrTemplate().length() <= 1)
-                            break;
-                        for (String stat : this.getStrTemplate().split(",")) {
-                            String[] stats = stat.split("#");
-                            int id = Integer.parseInt(stats[0], 16);
-                            if (id == Constant.STATS_RESIST) Stat.put(id, stats[1]);
-                        }
-                        break;
-                }
+                Map<Integer, String> Stat = this.createInitialDurabilityStats();
                 item = new GameObject(-1, getId(), qua, Constant.ITEM_POS_NO_EQUIPED, generateNewStatsFromTemplate(getStrTemplate(), useMax), getEffectTemplate(getStrTemplate()), new HashMap<>(), Stat, 0);
                 item.getSpellStats().addAll(this.getSpellStatsTemplate());
             }
@@ -421,27 +403,7 @@ public class ObjectTemplate {
                 Stats.put(Constant.STATS_NIVEAU, 1);
                 item = new GameObject(id, getId(), qua, Constant.ITEM_POS_NO_EQUIPED, generateNewStatsFromTemplate(getStrTemplate(), useMax), getEffectTemplate(getStrTemplate()), Stats, new HashMap<>(), 0);
             } else {
-                Map<Integer, String> Stat = new HashMap<>();
-                switch (getType()) {
-                    case 1:
-                    case 2:
-                    case 3:
-                    case 4:
-                    case 5:
-                    case 6:
-                    case 7:
-                    case 8:
-                        String[] splitted = getStrTemplate().split(",");
-                        for (String s : splitted) {
-                            String[] stats = s.split("#");
-                            int statID = Integer.parseInt(stats[0], 16);
-                            if (statID == Constant.STATS_RESIST) {
-                                String ResistanceIni = stats[1];
-                                Stat.put(statID, ResistanceIni);
-                            }
-                        }
-                        break;
-                }
+                Map<Integer, String> Stat = this.createInitialDurabilityStats();
                 item = new GameObject(id, getId(), qua, Constant.ITEM_POS_NO_EQUIPED, generateNewStatsFromTemplate(getStrTemplate(), useMax), getEffectTemplate(getStrTemplate()), new HashMap<Integer, Integer>(), Stat, 0);
                 item.getSpellStats().addAll(this.getSpellStatsTemplate());
             }
@@ -449,12 +411,49 @@ public class ObjectTemplate {
 
         for(GameObject object : objects) {
             if (World.world.getConditionManager().stackIfSimilar(object, item, true)) {
-                object.setQuantity(object.getQuantity() + item.getQuantity());
+                final int mergedQuantity;
+                try {
+                    mergedQuantity = Math.addExact(object.getQuantity(),
+                            item.getQuantity());
+                } catch (ArithmeticException overflow) {
+                    return null;
+                }
+                object.setQuantity(mergedQuantity);
                 return object;
             }
         }
-        ((ObjectData) DatabaseManager.get(ObjectData.class)).insert(item);
-        return item;
+        ObjectData objectData = DatabaseManager.get(ObjectData.class);
+        if (objectData != null && objectData.insert(item))
+            return item;
+        return null;
+    }
+
+    Map<Integer, String> createInitialDurabilityStats() {
+        Map<Integer, String> durability = new HashMap<>();
+        switch (this.getType()) {
+            case Constant.ITEM_TYPE_AMULETTE:
+            case Constant.ITEM_TYPE_ARC:
+            case Constant.ITEM_TYPE_BAGUETTE:
+            case Constant.ITEM_TYPE_BATON:
+            case Constant.ITEM_TYPE_DAGUES:
+            case Constant.ITEM_TYPE_EPEE:
+            case Constant.ITEM_TYPE_MARTEAU:
+            case Constant.ITEM_TYPE_PELLE:
+            case Constant.ITEM_TYPE_HACHE:
+                break;
+            default:
+                return durability;
+        }
+
+        if (this.strTemplate == null || this.strTemplate.length() <= 1)
+            return durability;
+        for (String stat : this.strTemplate.split(",")) {
+            String[] fields = stat.split("#");
+            if (fields.length > 1
+                    && Integer.parseInt(fields[0], 16) == Constant.STATS_RESIST)
+                durability.put(Constant.STATS_RESIST, fields[1]);
+        }
+        return durability;
     }
 
     private Map<Integer, String> getStringResistance(String statsTemplate) {

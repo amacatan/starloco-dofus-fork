@@ -1,58 +1,43 @@
 local jobID = FishermanJob
-local toolIDs = {596, 1860, 1861, 1862, 1863, 1864, 1865, 1866, 1867, 1868, 8541}
-local rareFishChance = 0.1
-
---FIXME timing
+local toolIDs = {596, 1860, 1861, 1862, 1863, 1864, 1865, 1866, 1867, 1868, 2366, 6661, 8541}
+local rareFishChancePercent = 0.1
+local rareFishByFish = {
+    [598]=1786, [600]=1799, [602]=1853, [603]=1762,
+    [1750]=1754, [1757]=1759, [1779]=1792, [1782]=1790,
+    [1784]=1788, [1794]=1796, [1801]=1803, [1805]=1807,
+    [1844]=1846, [1847]=1849,
+}
 local gatherSkills = {
     {id=136,  obj=Objects.Snapper,        xp=5,  minLvl=0,  respawn={6000, 10000}, fishes={2187}, toolID = 2188 },
     {id=140,  obj=Objects.StrangeShadow,  xp=50, minLvl=0,  respawn={6000, 10000}, fishes={1759} },
 
     {id=124,  obj=Objects.SmallRiverFish, xp=10, minLvl=0,  respawn={6000, 10000}, fishes={1782, 1844, 603} },
     {id=125,  obj=Objects.RiverFish,      xp=15, minLvl=10, respawn={6000, 10000}, fishes={1844, 603, 1847, 1794} },
-    {id=126,  obj=Objects.BigRiverFish,   xp=30, minLvl=40, respawn={6000, 10000}, fishes={603, 1847, 1794, 1779} },
-    {id=127,  obj=Objects.GiantRiverFish, xp=45, minLvl=70, respawn={6000, 10000}, fishes={1847, 1794, 1779, 1801} },
+    {id=126,  obj=Objects.BigRiverFish,   xp=25, minLvl=40, respawn={6000, 10000}, fishes={603, 1847, 1794, 1779} },
+    {id=127,  obj=Objects.GiantRiverFish, xp=35, minLvl=70, respawn={6000, 10000}, fishes={1847, 1794, 1779, 1801} },
 
     {id=128,  obj=Objects.SmallSeaFish,   xp=10, minLvl=0,  respawn={6000, 10000}, fishes={598, 1757, 1750} },
     {id=129,  obj=Objects.SeaFish,        xp=20, minLvl=20, respawn={6000, 10000}, fishes={1757, 1805, 600} },
-    {id=130,  obj=Objects.BigSeaFish,     xp=35, minLvl=50, respawn={6000, 10000}, fishes={1805, 1750, 1784, 600} },
-    {id=131,  obj=Objects.GiantSeaFish,   xp=50, minLvl=75, respawn={6000, 10000}, fishes={600, 1805, 602, 1784} },
+    {id=130,  obj=Objects.BigSeaFish,     xp=30, minLvl=50, respawn={6000, 10000}, fishes={1805, 1750, 1784, 600} },
+    {id=131,  obj=Objects.GiantSeaFish,   xp=35, minLvl=75, respawn={6000, 10000}, fishes={600, 1805, 602, 1784} },
 }
 
 -- Empty fish
 registerCraftSkill(133, {jobID = jobID, toolIDs=toolIDs})
 
-local successChanceForSkill = function(sk, p)
-    -- Snapper
-    if sk.id == 136 then return 100 end
-
-    local jlvl = p:jobLevel(jobID)
-
-    if jlvl < 30 then
-        -- TODO: Find official chance
-        return 40
-    end
-
-    -- 100% success chance at certain times
-    local _, _, _, h, _, _ = World:datetime()
-    if h >= 23 or h < 3 or (h >= 6 and h < 9) or (h >= 18 and h < 21) then
-        return 100
-    end
-
-    return 66.6
-end
-
 local rewardForSkill = function(sk)
     ---@param p Player
     return function(p)
-        local success = p:getCtxVal("job_success")
-        if not success then return end
-
-        local lvlDiff = p:jobLevel(jobID) - sk.minLvl
-        local quantity = math.random(1, 2 + math.floor(lvlDiff / 5))
-
-        -- TODO: Support rareFishChance
+        -- The historical job action uses [0, 1] for every fishing spot,
+        -- except Pichon (skill 136), whose bounds are [1, 1].
+        local quantity = sk.id == 136 and 1 or math.random(0, 1)
+        if quantity == 0 then return end
 
         local itemID = sk.fishes[math.random(#sk.fishes)]
+        local rareFish = rareFishByFish[itemID]
+        if rareFish and math.random() * 100 <= rareFishChancePercent then
+            itemID = rareFish
+        end
 
         gatherSkillAddItem(p, itemID, quantity)
         p:addJobXP(jobID, sk.xp)
@@ -61,15 +46,7 @@ end
 
 local durationForSkill = function(sk)
     return function(p)
-        local lvlDiff = p:jobLevel(jobID) - sk.minLvl
-        local success = (math.random()*100) <= successChanceForSkill(sk, p)
-
-        local duration = 16000 - 100 * lvlDiff
-        if success then  duration = duration/2  end
-
-        p:setCtxVal("job_success", success)
-
-        return duration
+        return 12000 - 100 * p:jobLevel(jobID)
     end
 end
 

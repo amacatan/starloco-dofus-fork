@@ -17,6 +17,7 @@ SKILLS = {}
 ---@field rewardFn fun(p):table{number, ItemStack}
 ---@field xp number
 ---@field respawn number[2]
+---@field minDuration number Optional minimum gathering duration, in milliseconds
 
 ---@param p Player
 ---@param requirements SkillRequirements
@@ -187,7 +188,11 @@ end
 function registerGatherJobSkills(jobID, toolInfo, skills)
     for _, sk in pairs(skills) do
         local durationForPlayer = function(p)
-            return GATHER_SKILL_BASE_DURATION - 100 * p:jobLevel(jobID)
+            local duration = GATHER_SKILL_BASE_DURATION - 100 * p:jobLevel(jobID)
+            if sk.minDuration and duration < sk.minDuration then
+                return sk.minDuration
+            end
+            return duration
         end
 
         ---@param p Player

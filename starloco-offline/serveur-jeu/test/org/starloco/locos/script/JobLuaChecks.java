@@ -64,7 +64,25 @@ public final class JobLuaChecks {
                         + "    if registered[id] ~= nil then error('duplicate job skill '..tostring(id)) end\n"
                         + "    registered[id] = fn\n"
                         + "  end\n"
-                        + "})\n",
+                        + "})\n"
+                        + "REGISTERED_GATHER_RESPAWNS = {}\n"
+                        + "REGISTERED_GATHER_DURATIONS = {}\n"
+                        + "local originalRegisterGatherSkill = registerGatherSkill\n"
+                        + "registerGatherSkill = function(skillId, actorAnimID, durationFn, "
+                        + "rewardFn, respawnIntervalFn, requirements)\n"
+                        + "  REGISTERED_GATHER_DURATIONS[skillId] = durationFn\n"
+                        + "  if respawnIntervalFn then\n"
+                        + "    local oldRandom = math.random\n"
+                        + "    math.random = function(minimum, maximum) return minimum end\n"
+                        + "    local minimum = respawnIntervalFn()\n"
+                        + "    math.random = function(minimum, maximum) return maximum end\n"
+                        + "    local maximum = respawnIntervalFn()\n"
+                        + "    math.random = oldRandom\n"
+                        + "    REGISTERED_GATHER_RESPAWNS[skillId] = {minimum, maximum}\n"
+                        + "  end\n"
+                        + "  return originalRegisterGatherSkill(skillId, actorAnimID, durationFn, "
+                        + "rewardFn, respawnIntervalFn, requirements)\n"
+                        + "end\n",
                 "job-skill-registration-guard");
 
         List<Path> modules;
@@ -78,14 +96,92 @@ public final class JobLuaChecks {
         for (Path module : modules)
             run(state, loader, executor, environment, module);
 
-        Path buildJobModules = projectDir.resolveSibling(
-                "build-contexts/game/scripts/data/skills");
+        Path buildScripts = projectDir.resolveSibling("build-contexts/game/scripts");
+        check(Files.mismatch(scriptsDir.resolve("data/Skills.lua"),
+                        buildScripts.resolve("data/Skills.lua")) == -1,
+                "The build-context copy must match Skills.lua");
+        Path buildJobModules = buildScripts.resolve("data/skills");
         for (Path module : modules) {
             Path buildCopy = buildJobModules.resolve(module.getFileName());
             check(Files.isRegularFile(buildCopy)
                             && Files.mismatch(module, buildCopy) == -1,
                     "The build-context copy must match " + module.getFileName());
         }
+
+        long[][] expectedRespawns = {
+                {45, 300000}, {53, 540000}, {57, 600000}, {46, 660000},
+                {50, 300000}, {159, 900000}, {52, 780000}, {58, 1140000},
+                {54, 420000},
+                {68, 300000}, {69, 420000}, {71, 240000}, {72, 240000},
+                {73, 240000}, {74, 420000}, {160, 240000},
+                {24, 420000, 900000}, {25, 780000}, {26, 900000}, {28, 1080000},
+                {56, 1080000}, {55, 1200000}, {162, 1500000}, {29, 1800000},
+                {31, 2100000}, {30, 2100000}, {161, 180000},
+                {6, 300000}, {39, 600000}, {40, 900000}, {10, 1020000},
+                {139, 1500000, 2400000}, {141, 1500000, 2400000},
+                {37, 2400000}, {33, 2400000},
+                {154, 2400000}, {41, 2400000}, {34, 3300000}, {174, 1200000},
+                {38, 3600000}, {155, 1800000}, {35, 7200000}, {158, 10800000},
+                {136, 10000}, {140, 180000}, {124, 180000}, {125, 180000},
+                {126, 180000}, {127, 180000}, {128, 180000}, {129, 180000},
+                {130, 180000}, {131, 180000}
+        };
+        Object respawnsValue = environment.rawget("REGISTERED_GATHER_RESPAWNS");
+        check(respawnsValue instanceof Table,
+                "Gather skill registration must expose respawn timings to the checks");
+        Table respawns = (Table) respawnsValue;
+        for (long[] expected : expectedRespawns) {
+            Object boundsValue = respawns.rawget(expected[0]);
+            check(boundsValue instanceof Table,
+                    "Missing respawn timing for gathering skill " + expected[0]);
+            Table bounds = (Table) boundsValue;
+            Object minimum = bounds.rawget(1L);
+            Object maximum = bounds.rawget(2L);
+            long expectedMaximum = expected.length == 3 ? expected[2] : expected[1];
+            check(minimum instanceof Number && maximum instanceof Number
+                            && ((Number) minimum).longValue() == expected[1]
+                            && ((Number) maximum).longValue() == expectedMaximum,
+                    "Unexpected respawn timing for gathering skill " + expected[0]);
+        }
+
+        run(state, loader, executor, environment,
+                "local currentLevel = 1\n"
+                        + "local p = {jobLevel=function() return currentLevel end}\n"
+                        + "local function verify(skill, checkpoints)\n"
+                        + "  local durationFn = REGISTERED_GATHER_DURATIONS[skill]\n"
+                        + "  assert(durationFn ~= nil, 'missing duration for skill '..skill)\n"
+                        + "  for _, checkpoint in ipairs(checkpoints) do\n"
+                        + "    currentLevel = checkpoint[1]\n"
+                        + "    local actual = durationFn(p)\n"
+                        + "    assert(actual == checkpoint[2], 'skill '..skill..' level '.."
+                        + "currentLevel..': expected '..checkpoint[2]..', got '..actual)\n"
+                        + "  end\n"
+                        + "end\n"
+                        + "local ordinary = {{1,11900},{50,7000},{100,2000}}\n"
+                        + "for _, skill in ipairs({45,68,6}) do verify(skill, ordinary) end\n"
+                        + "verify(24, {{1,11900},{90,3000},{100,2000}})\n"
+                        + "verify(29, {{60,6000},{89,3100},{90,3000},{100,3000}})\n"
+                        + "verify(31, {{70,5000},{89,3100},{90,3000},{100,3000}})\n"
+                        + "verify(30, {{80,4000},{90,4000},{100,4000}})\n"
+                        + "verify(161, {{100,2000}})\n"
+                        + "local pichon = {{1,14950},{10,14500},{45,12750},"
+                        + "{80,11000},{99,10050},{100,10000}}\n"
+                        + "local small = {{1,17870},{10,16700},{45,12150},"
+                        + "{80,7600},{99,5130},{100,5000}}\n"
+                        + "local normal = {{10,15700},{45,11150},{80,6600},"
+                        + "{99,4130},{100,4000}}\n"
+                        + "local bigRiver = {{40,10800},{45,10150},{80,5600},"
+                        + "{99,3130},{100,3000}}\n"
+                        + "local large = {{50,8500},{70,6300},{75,5750},"
+                        + "{80,5200},{99,3110},{100,3000}}\n"
+                        + "verify(136, pichon)\n"
+                        + "for _, skill in ipairs({124,128}) do verify(skill, small) end\n"
+                        + "for _, skill in ipairs({125,129}) do verify(skill, normal) end\n"
+                        + "verify(126, bigRiver)\n"
+                        + "for _, skill in ipairs({127,130,131}) do verify(skill, large) end\n"
+                        + "verify(140, {{1,9920},{10,9200},{45,6400},"
+                        + "{80,3600},{99,2080},{100,2000}})\n",
+                "gather-duration-progression-check");
 
         Set<Integer> expectedSkills = new HashSet<>();
         for (int[] action : JobConstant.JOB_ACTION)
@@ -254,7 +350,8 @@ public final class JobLuaChecks {
                         + "SKILLS[24](p, 7)\n"
                         + "assert(active and delayed[1].ms==2000)\n"
                         + "delayed[1].fn()\n"
-                        + "assert(received==6 and receivedXp==10 and not active)\n"
+                        + "assert(received==6 and receivedXp==10 and not active "
+                        + "and delayed[2].ms==420000)\n"
                         + "math.random=oldRandom\n",
                 "level-100-gather-check");
 
@@ -292,7 +389,7 @@ public final class JobLuaChecks {
                         + "if a==nil then return rareRoll end; "
                         + "if a==0 and b==1 then return outcome end; "
                         + "if b==nil then return fishIndex end; return a end\n"
-                        + "SKILLS[124](p, 7); assert(delayed[1].ms==2000); delayed[1].fn()\n"
+                        + "SKILLS[124](p, 7); assert(delayed[1].ms==5000); delayed[1].fn()\n"
                         + "assert(received==0 and receivedXp==0)\n"
                         + "state=AnimStates.READY; delayed={}; outcome=1\n"
                         + "SKILLS[124](p, 7); delayed[1].fn()\n"

@@ -3,6 +3,7 @@ local questID = 198
 
 npc.colors = {5767327, 61976, 16713222}
 npc.accessories = {0, 6481, 2386, 0, 0}
+npc.quests = {questID}
 npc.customArtwork = 9086
 
 local dungeonKeyId = 8545
@@ -56,11 +57,30 @@ local onTalkMaps = {
 ---@param answer number
 function npc:onTalk(p, answer)
     local quest = QUESTS[questID]
-    if onTalkMaps[p:mapID()] then
-        onTalkMaps[p:mapID()](p, answer)
+    local mapID = p:mapID()
+
+    if mapID == 10364 and quest:ongoingFor(p)
+            and quest:canCompleteObjective(p, 809) then
+        if answer == 0 then
+            p:ask(3830)
+            quest:completeObjective(p, 809)
+        end
+        return
     end
-    if p:mapID() == 10352 then
-        if quest:availableTo(p) and answer == 0 then
+
+    local mapTalk = onTalkMaps[mapID]
+    if mapTalk then
+        mapTalk(p, answer)
+        return
+    end
+
+    if mapID ~= 10352 then
+        p:endDialog()
+        return
+    end
+
+    if quest:availableTo(p) then
+        if answer == 0 then
             p:ask(3823, {3354, 3353})
         elseif answer == 3354 or answer == 3353 then
             p:ask(3824, {3355})
@@ -69,14 +89,23 @@ function npc:onTalk(p, answer)
         elseif answer == 3356 then
             quest:startFor(p, self.id)
             p:endDialog()
-        elseif quest:ongoingFor(p) then
-            --TODO: ADD WHAT HAPPENS IF WE HAVE COMPLETED THE OBJECTIVE
-            return p:ask(3847)
         end
-    elseif quest:finishedBy(p) then
-        --TODO: NEED TO ADD DIALOGID WHEN WE SPEAK TO HIM WITH QUEST ALREADY COMPLETED
-        p:ask()
+        return
     end
+
+    if quest:ongoingFor(p) then
+        if answer == 0 then
+            p:ask(3847)
+        end
+        return
+    end
+
+    if quest:finishedBy(p) then
+        p:ask(3827)
+        return
+    end
+
+    p:endDialog()
 end
 
 RegisterNPCDef(npc)

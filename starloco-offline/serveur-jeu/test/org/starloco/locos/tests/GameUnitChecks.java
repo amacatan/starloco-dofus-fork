@@ -33,6 +33,7 @@ import org.starloco.locos.job.JobCraftChecks;
 import org.starloco.locos.object.ObjectTemplateChecks;
 import org.starloco.locos.script.JobLuaChecks;
 import org.starloco.locos.script.MapLuaChecks;
+import org.starloco.locos.script.QuestLuaChecks;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -72,6 +73,7 @@ public final class GameUnitChecks {
         ObjectTemplateChecks.run();
         JobLuaChecks.run();
         MapLuaChecks.run();
+        QuestLuaChecks.run();
         TrunkChecks.run();
         FighterChecks.run();
         SpellEffectChecks.run();

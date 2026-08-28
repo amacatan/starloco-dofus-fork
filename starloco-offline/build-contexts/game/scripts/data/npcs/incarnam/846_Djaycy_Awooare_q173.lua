@@ -26,15 +26,17 @@ function npc:onTalk(p, answer)
     end
 
     if quest:ongoingFor(p) then
+        local currentStep = quest:currentStepFor(p)
+        if currentStep and currentStep.id == 346 then
+            p:ask(3685)
+            return
+        end
+
         if quest:tryCompleteBringItemObjectives(p, self.id) then
             p:ask(3571)
             return
         end
 
-        if quest:currentStepFor(p).id == 346 then
-            p:ask(3685)
-            return
-        end
         p:ask(3678)
         return
     end

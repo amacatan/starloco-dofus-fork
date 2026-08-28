@@ -3,6 +3,7 @@ local questID = 230
 
 npc.colors = {15787994, 9594674, 16773874}
 npc.accessories = {0, 0x228d, 0, 0, 0}
+npc.quests = {questID}
 
 local bonusPods = 500
 local coralWeight = 10
@@ -41,15 +42,15 @@ function npc:onTalk(p, answer)
         local used, max = p:pods()
         local remainingBonus = max - used + bonusPods
         local count = remainingBonus / coralWeight
-        if count < 50 then fail(p) end -- Should never happen, unless player has too many items somehow
-        local expectedIdx = math.min(count / 100 + 1, 4)
+        if count < 50 then return fail(p) end -- Should never happen, unless player has too many items somehow
+        local expectedIdx = math.min(math.floor(count / 100) + 1, 4)
         local expected = expectedIdx + 3600
         if answer == expected then p:ask(4120, {3611, 3612, 3613, 3615, 3614}) else fail(p) end
         --elseif answer >= 3611 and answer <= 3613 or answer == 3615 then fail(p)
     elseif answer == 3614 then
         p:ask(4119, {3606, 3607, 3608, 3609, 3610})
         --elseif answer >= 3606 and answer <= 3609 then fail(p)
-    elseif answer == 3610 then
+    elseif answer == 3610 and quest:canCompleteObjective(p, 940) then
         quest:completeObjective(p, 940)
         self:onTalk(p, 0) -- This makes sure we have completed the quest
     elseif quest:finishedBy(p) and answer == 3616 then p:teleport(10692, 303)

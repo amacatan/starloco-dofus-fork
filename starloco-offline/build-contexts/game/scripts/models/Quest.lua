@@ -70,7 +70,14 @@ end
 ---@return boolean worked
 function Quest:startFor(p, npcId)
     if not self:availableTo(p) then return false end
-    if p:_startQuest(self.id, self.steps[1].id, self.isAccountBound) then
+
+    local firstStep = self.steps[1]
+    if not firstStep or not firstStep.id then
+        JLogF("cannot start quest #{} without a valid first step", self.id)
+        return false
+    end
+
+    if p:_startQuest(self.id, firstStep.id, self.isAccountBound) then
         if npcId then
             p:map():updateNpcExtraForPlayer(npcId, p)
         end
@@ -239,26 +246,31 @@ end
 ---@param npcID number
 ---@return boolean true if success
 function Quest:tryCompleteBringItemObjectives(p, npcID)
-    -- Make sure we can complete all objectives
+    local bringObjectives = {}
     for _, obj in ipairs(self:uncompletedObjectives(p)) do
-        if obj.canBringItemCheck then
-            if not obj:canBringItemCheck(p, npcID) then
-                return false
-            end
+        if obj.type == BringItemObjectiveType and obj.npcId == npcID then
+            table.insert(bringObjectives, obj)
+        end
+    end
+
+    if #bringObjectives == 0 then return false end
+
+    -- Make sure every item can be handed in before consuming anything.
+    for _, obj in ipairs(bringObjectives) do
+        if not obj:canBringItemCheck(p, npcID) then
+            return false
         end
     end
 
     -- Consume everything
     local canComplete = {}
-    for _, obj in ipairs(self:uncompletedObjectives(p)) do
+    for _, obj in ipairs(bringObjectives) do
         if not obj:onBringItemCheck(p, npcID) then
             error("race condition (SHOULD NEVER HAPPEN)")
         else
             table.insert(canComplete, obj.id)
         end
     end
-
-    if #canComplete == 0 then return false end
 
     self:completeObjectives(p, canComplete)
 

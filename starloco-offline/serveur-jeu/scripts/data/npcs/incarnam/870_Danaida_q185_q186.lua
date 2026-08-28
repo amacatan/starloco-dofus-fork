@@ -1,6 +1,7 @@
 local npc = Npc(870, 9044)
 
 local waterQuestID = 185
+local historyQuestID = 186
 
 npc.gender = 1
 
@@ -10,6 +11,20 @@ npc.quests = {waterQuestID} -- On définit la quête pour ce PNJ
 ---@param answer number
 function npc:onTalk(p, answer)
     local waterQuest = QUESTS[waterQuestID]
+    local historyQuest = QUESTS[historyQuestID]
+
+    if answer == 3275 or answer == 3276 then
+        p:endDialog()
+        return
+    end
+
+    if historyQuest:ongoingFor(p) and historyQuest:canCompleteObjective(p, 759) then
+        if answer == 0 then
+            p:ask(3730, {3275, 3276})
+            historyQuest:completeObjective(p, 759)
+        end
+        return
+    end
 
     -- Si la quête "waterQuest" est disponible pour le joueur
     if waterQuest:availableTo(p) then

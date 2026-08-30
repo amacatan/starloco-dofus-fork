@@ -34,15 +34,31 @@ public class SItem  extends DefaultUserdata<GameObject> {
     }
 
     @SuppressWarnings("unused")
-    private static long dateStatTS(GameObject item, ArgumentIterator args) {
+    private static Long dateStatTS(GameObject item, ArgumentIterator args) {
         int statID = args.nextInt();
+        return parseDateStatTS(item.getTxtStat().get(statID));
+    }
 
-        String val = item.getTxtStat().get(statID);
-        if(val == null) return -1;
-        if (val.contains("#")) {
-            val = val.split("#")[3];
+    static Long parseDateStatTS(String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
         }
-        return Long.parseLong(val);
+
+        String timestamp = value;
+        if (value.contains("#")) {
+            String[] fields = value.split("#", -1);
+            if (fields.length < 4) {
+                return null;
+            }
+            timestamp = fields[3];
+        }
+
+        try {
+            long parsed = Long.parseLong(timestamp);
+            return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     @SuppressWarnings("unused")

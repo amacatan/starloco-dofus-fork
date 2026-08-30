@@ -21,11 +21,14 @@ function npc:onTalk(p, answer)
     end
 
     if quest:ongoingFor(p) then
-        if quest:currentStepFor(p).id == 146 then
+        if answer == 0 and quest:canCompleteObjective(p, 309) then
             p:ask(2389)
             quest:completeObjective(p, 309)
             return
         end
+        if answer == 0 then p:ask(2214)
+        end
+        return
     end
 
     if quest:finishedBy(p) then

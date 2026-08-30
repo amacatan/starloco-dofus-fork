@@ -330,11 +330,14 @@ local questAvailableTo = function(info)
         if not item then return true end
 
         local lastKill = item:dateStatTS(dateStatID)
-        if not lastKill or lastKill == 0 then error("dopple certificate doesn't have a date") end
+        -- A present certificate with an invalid legacy date must never make the
+        -- repeatable quest immediately available or break the NPC callback.
+        if not lastKill or lastKill <= 0 then return false end
 
-        local diff = World:clock() - lastKill
+        local now = World:clock()
+        if lastKill > now then return false end
 
-        return diff > questIntervalMs
+        return now - lastKill >= questIntervalMs
     end
 end
 
@@ -361,7 +364,8 @@ local createQuest = function(info)
         -- FIXME Certificates are drops on official servers
         -- Remove old certificate
         p:consumeItem(info.certificate, 1)
-        p:addItem(info.certificate) -- TODO: Set date on item ?
+        -- Dopple certificates receive their date stat when Java creates them.
+        p:addItem(info.certificate)
         return
     end
 

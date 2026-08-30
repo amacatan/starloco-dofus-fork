@@ -119,20 +119,39 @@ end
 
 ---@param p Player
 ---@param id number
+---@return boolean
 function Quest:completeObjective(p, id)
-    self:completeObjectives(p, {id})
+    return self:completeObjectives(p, {id})
 end
 
 ---@param p Player
 ---@param ids number[]
+---@return boolean
 function Quest:completeObjectives(p, ids)
     local stepIdx, step = self:step(p:_currentStep(self.id))
     if not step then
-        error("player doesn't have the quest")
+        JLogF("cannot complete an objective without an active step for quest #{}", self.id)
+        return false
+    end
+    if #ids == 0 then return false end
+
+    -- Validate the whole batch before persisting anything. This prevents foreign,
+    -- future and duplicate objectives from corrupting the current quest step.
+    local completable = {}
+    for _, objective in ipairs(self:uncompletedObjectives(p)) do
+        completable[objective.id] = true
     end
     for _, id in ipairs(ids) do
+        if not completable[id] then
+            JLogF("cannot complete inactive objective #{} for quest #{}", id, self.id)
+            return false
+        end
+        completable[id] = nil
+    end
+
+    for _, id in ipairs(ids) do
         if not p:_completeObjective(self.id, id) then
-            return
+            return false
         end
     end
 
@@ -140,7 +159,7 @@ function Quest:completeObjectives(p, ids)
     local uncompletedObjectives = self:uncompletedObjectives(p)
     if #uncompletedObjectives ~= 0 then
         JLogF("PLAYER NOT DONE WITH OBJECTIVE {}", uncompletedObjectives[1])
-        return
+        return true
     end
 
     -- All objectives are completed, reward + next step
@@ -150,10 +169,11 @@ function Quest:completeObjectives(p, ids)
     if not nextStep then
         -- Quest finished
         p:_completeQuest(self.id, self.isRepeatable)
-        return
+        return true
     end
     -- Go to next step
     p:_setCurrentStep(self.id, nextStep.id)
+    return true
 end
 
 ---@param p Player

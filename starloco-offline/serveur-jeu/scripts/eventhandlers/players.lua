@@ -56,7 +56,7 @@ end
 Handlers.players.onQuestStatusRequest = function(player, questId, stepId)
     local quest = QUESTS[questId]
     if not quest then
-        error("quest not found")
+        return nil
     end
     ---@type QuestStep
     local step

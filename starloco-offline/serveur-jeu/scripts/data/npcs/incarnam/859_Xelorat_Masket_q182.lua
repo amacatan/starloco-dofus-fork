@@ -14,13 +14,14 @@ function npc:onTalk(p, answer)
     local quest = QUESTS[questID]
     local fedexLocalsQuest = QUESTS[fedexLocalsQuestID]
 
-    if quest:ongoingFor(p) then 
-        if p:consumeItem(8529, 1) then
-            quest:completeObjective(p,746)
-            p:ask(3666, {3233, 3232})
-            return
+    if quest:ongoingFor(p) then
+        if answer == 0 then
+            if quest:tryCompleteBringItemObjectives(p, self.id) then
+                p:ask(3666, {3233, 3232})
+            else
+                p:ask(3665)
+            end
         end
-        error("hack attempt")
         return
     end
 

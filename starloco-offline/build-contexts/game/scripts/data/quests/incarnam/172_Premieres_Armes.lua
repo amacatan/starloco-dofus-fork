@@ -1,5 +1,6 @@
 local mobCount = 1
 local npcId = 843
+local immatureArakneId = 982
 
 local qs329 = QuestStep(329, 3557)
 local q172 = Quest(172, {qs329})
@@ -25,11 +26,11 @@ qs329.objectives = function(p)
     elseif p:breed() == OsamodasBreed then  
         return q172:SequentialObjectives( {KillMonsterSingleFightObjective(710, 974, mobCount), finalObjective})(p)
     elseif p:breed() == EniripsaBreed then  
-        return q172:SequentialObjectives( {KillMonsterSingleFightObjective(702, 984, mobCount), finalObjective})(p)
+        return q172:SequentialObjectives( {KillMonsterSingleFightObjective(702, immatureArakneId, mobCount), finalObjective})(p)
     elseif p:breed() == SacrierBreed then   
-        return q172:SequentialObjectives( {KillMonsterSingleFightObjective(711, 984, mobCount), finalObjective})(p)
+        return q172:SequentialObjectives( {KillMonsterSingleFightObjective(711, immatureArakneId, mobCount), finalObjective})(p)
     elseif p:breed() == PandawaBreed then   
-        return q172:SequentialObjectives( {KillMonsterSingleFightObjective(709, 984, mobCount), finalObjective})(p)
+        return q172:SequentialObjectives( {KillMonsterSingleFightObjective(709, immatureArakneId, mobCount), finalObjective})(p)
     end
     return{}
 end

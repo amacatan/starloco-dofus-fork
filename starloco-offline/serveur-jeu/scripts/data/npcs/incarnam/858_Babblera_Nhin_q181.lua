@@ -17,7 +17,7 @@ function npc:onTalk(p, answer)
     local quest = QUESTS[questID]
     local fedexLocalsQuest = QUESTS[fedexLocalsQuestID]
 
-    if quest:ongoingFor(p) and quest:hasCompletedObjective(p, 745) then
+    if quest:ongoingFor(p) and quest:canCompleteObjective(p, 744) then
         if answer == 0 then
             if not quest:hasCompletedObjective(p, 744) then
                 if p:consumeItem(recipeID, 1) then

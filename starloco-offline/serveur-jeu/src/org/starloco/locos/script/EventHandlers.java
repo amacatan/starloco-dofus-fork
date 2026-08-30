@@ -5,7 +5,6 @@ import org.classdump.luna.impl.DefaultTable;
 import org.classdump.luna.runtime.LuaFunction;
 import org.starloco.locos.client.Player;
 import org.starloco.locos.quest.QuestInfo;
-import org.starloco.locos.script.proxy.SPlayer;
 
 public class EventHandlers extends DefaultTable {
     private final DataScriptVM vm;
@@ -17,30 +16,35 @@ public class EventHandlers extends DefaultTable {
     }
 
 
-    private LuaFunction<?,?,?,?,?> getHandler(Table t, String name) {
-        Object mbFn = t.rawget(name);
-        if(!(mbFn instanceof LuaFunction)) throw new IllegalArgumentException("event handler is not a function");
-        return (LuaFunction<?,?,?,?,?>)mbFn;
+    private Object[] callPlayerHandler(String name, Object... args) {
+        Object handler = players.rawget(name);
+        if (!(handler instanceof LuaFunction)) {
+            ScriptVM.logger.error(
+                    "Missing or invalid Lua event handler Handlers.players.{}", name);
+            return null;
+        }
+        return vm.call(handler, args);
     }
 
     public void onDialog(Player player, int npcID, int answer) {
-        vm.call(getHandler(players, "onDialog"), player.scripted(), npcID, answer);
+        callPlayerHandler("onDialog", player.scripted(), npcID, answer);
     }
 
     public void onMapEnter(Player player) {
-        vm.call(getHandler(players, "onMapEnter"), player.scripted());
+        callPlayerHandler("onMapEnter", player.scripted());
     }
 
     public void onSkillUse(Player player, int cellID, int skillID) {
-        vm.call(getHandler(players, "onSkillUse"), player.scripted(), cellID, skillID);
+        callPlayerHandler("onSkillUse", player.scripted(), cellID, skillID);
     }
 
     public void onFightEnd(Player player, int type, boolean isWinner, Table winners, Table losers) {
-        vm.call(getHandler(players, "onFightEnd"), player.scripted(), type, isWinner, winners, losers);
+        callPlayerHandler("onFightEnd", player.scripted(), type, isWinner, winners, losers);
     }
 
     public QuestInfo questInfo(Player player, int id, int currentStep) {
-        Object[] ret = vm.call(getHandler(players, "onQuestStatusRequest"), player.scripted(), id, currentStep);
+        Object[] ret = callPlayerHandler(
+                "onQuestStatusRequest", player.scripted(), id, currentStep);
         if(ret == null || ret.length == 0 || !(ret[0] instanceof Table)) return null;
         Table t = (Table)ret[0];
 
@@ -55,6 +59,6 @@ public class EventHandlers extends DefaultTable {
     }
 
     public void onDocQuestHref(Player player, int docID, int questID) {
-        vm.call(getHandler(players, "onDocQuestHref"), player.scripted(), docID, questID);
+        callPlayerHandler("onDocQuestHref", player.scripted(), docID, questID);
     }
 }

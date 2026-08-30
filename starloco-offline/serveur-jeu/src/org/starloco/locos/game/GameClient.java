@@ -7645,14 +7645,22 @@ public class GameClient {
      * Quest Packet *
      */
     private void parseQuestData(String packet) {
+        if (this.player == null) return;
+
         switch (packet.charAt(1)) {
             case 'L': // Quests list
                 player.send(player.encodeQuestList());
                 break;
 
             case 'S': // Quest steps
-                int id = Integer.parseInt(packet.substring(2));
-                player.sendQuestStatus(id);
+                if (packet.length() <= 2) return;
+                try {
+                    int id = Integer.parseInt(packet.substring(2));
+                    if (id <= 0) return;
+                    player.sendQuestStatus(id);
+                } catch (NumberFormatException ignored) {
+                    // Ignore malformed quest status requests.
+                }
                 break;
         }
     }

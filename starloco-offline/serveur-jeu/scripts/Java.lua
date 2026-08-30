@@ -351,7 +351,7 @@ function Item:hasTxtStat(stat, val) end
 function Item:consumeTxtStat(stat, val) end
 
 ---@param stat number
----@return number timestamp millis
+---@return number|nil timestamp millis, or nil when absent or invalid
 function Item:dateStatTS(stat) end
 
 ---@class Account

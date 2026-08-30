@@ -70,6 +70,7 @@ import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -5885,17 +5886,19 @@ public class Player implements Scripted<SPlayer>, Actor {
     }
 
     public void sendQuestStatus(int questId) {
+        sendQuestStatus(questId, qp -> DataScriptVM.getInstance().handlers
+                .questInfo(this, qp.questId, qp.getCurrentStep()));
+    }
+
+    void sendQuestStatus(int questId,
+                         Function<QuestProgress, QuestInfo> questInfoProvider) {
         QuestProgress qp = getAccount().getQuestProgress(this.id, questId);
 
-        if(qp == null) {
-            throw new NullPointerException("sendQuestStatus called for non current quest");
-        }
+        if(qp == null) return;
 
         // Call lua to get quest info
-        QuestInfo qi = DataScriptVM.getInstance().handlers.questInfo(this, questId, qp.getCurrentStep());
-        if(qi == null) {
-            throw new NullPointerException("sendQuestStatus called for unknown quest");
-        }
+        QuestInfo qi = questInfoProvider.apply(qp);
+        if(qi == null) return;
 
         StringJoiner sj = new StringJoiner("|");
         sj.add("QS"+String.join(";",
@@ -5920,17 +5923,23 @@ public class Player implements Scripted<SPlayer>, Actor {
     }
 
     public String encodeQuestList() {
-        return "QL+" + getAccount().getQuestProgressions(this.id).
-            map(qp -> {
-                QuestInfo qi = DataScriptVM.getInstance().handlers.questInfo(this, qp.questId, qp.getCurrentStep());
+        return encodeQuestList(qp -> DataScriptVM.getInstance().handlers
+                .questInfo(this, qp.questId, qp.getCurrentStep()));
+    }
 
-                return String.join(";",
+    String encodeQuestList(Function<QuestProgress, QuestInfo> questInfoProvider) {
+        return "QL+" + getAccount().getQuestProgressions(this.id).
+            flatMap(qp -> {
+                QuestInfo qi = questInfoProvider.apply(qp);
+                if(qi == null) return Stream.empty();
+
+                return Stream.of(String.join(";",
                     String.valueOf(qp.questId),
                     qp.isFinished()?"1":"0",
                     "", // List sort order. AccountBound/Repeatable quests tend to appear last (higher weight)
                     qi.isAccountBound?"1":"0",
                     qi.isRepeatable?"1":"0"
-                );
+                ));
             }).collect(Collectors.joining("|"));
     }
 

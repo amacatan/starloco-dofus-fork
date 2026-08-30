@@ -181,17 +181,19 @@ end
 
 ---@class KillMonsterObjective:QuestObjective
 ---@field monsterId number
+---@field amount number defaults to 1
 
----@type fun(id:number, monsterId:number):KillMonsterObjective
+---@type fun(id:number, monsterId:number, amount:number|nil):KillMonsterObjective
 KillMonsterObjective = {}
 KillMonsterObjective.__index = KillMonsterObjective
 
 setmetatable(KillMonsterObjective, {
-    __call = function(_, id, monsterId)
+    __call = function(_, id, monsterId, amount)
         local self = setmetatable({}, KillMonsterObjective)
         self.id = id
         self.type = KillMonsterObjectiveType
         self.monsterId = monsterId
+        self.amount = amount or 1
 
         return self
     end,

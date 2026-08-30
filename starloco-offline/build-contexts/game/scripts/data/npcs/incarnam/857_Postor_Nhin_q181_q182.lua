@@ -33,7 +33,7 @@ function npc:onTalk(p, answer)
 
     if recipeQuest:ongoingFor(p) then
         if answer == 0 then
-            if recipeQuest:hasCompletedObjective(p, 745) then
+            if recipeQuest:canCompleteObjective(p, 744) then
                 if not p:getItem(recipeID) then
                     p:addItem(recipeID)
                 end
@@ -44,13 +44,12 @@ function npc:onTalk(p, answer)
             p:ask(3655, {3223})
         elseif answer == 3223 then
             p:ask(3656, {3224, 3225})
-        elseif answer == 3224 then
+        elseif answer == 3224 and recipeQuest:canCompleteObjective(p, 745) then
             recipeQuest:completeObjective(p, 745)
             p:ask(3657, {3226})
         elseif answer == 3225 then
             p:endDialog()
-        elseif answer == 3226 then
-            recipeQuest:completeObjective(p, 745)
+        elseif answer == 3226 and recipeQuest:canCompleteObjective(p, 744) then
             if not p:getItem(recipeID) then
                 p:addItem(recipeID)
             end

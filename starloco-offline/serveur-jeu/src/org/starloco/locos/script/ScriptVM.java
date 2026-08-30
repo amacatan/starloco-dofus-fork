@@ -123,8 +123,12 @@ public class ScriptVM {
         synchronized (_vmLock) {
             try {
                 return this.executor.call(this.state, val, args);
-            } catch (Exception e) {
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 throw new RuntimeException(e);
+            } catch (CallException | CallPausedException e) {
+                logger.error("Runtime Lua callback failed", e);
+                return null;
             }
         }
     }

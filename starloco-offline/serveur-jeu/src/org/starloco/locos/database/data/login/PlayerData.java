@@ -49,10 +49,10 @@ public class PlayerData extends FunctionDAO<Player> {
     }
 
     @Override
-    public Player load(int id) {
-        Player oldPlayer = World.world.getPlayer(id);
+    public Player load(int playerId) {
+        Player oldPlayer = World.world.getPlayer(playerId);
         try {
-            Player player = getData("SELECT * FROM " + getTableName() + " WHERE id = '" + id + "' AND server = " + Config.gameServerId + ";", result -> {
+            Player player = getData("SELECT * FROM " + getTableName() + " WHERE id = '" + playerId + "' AND server = " + Config.gameServerId + ";", result -> {
                 if(!result.next())return null;
                 return buildFromResultSet(result);
             });
@@ -61,10 +61,10 @@ public class PlayerData extends FunctionDAO<Player> {
 
             player.VerifAndChangeItemPlace();
 
-            DatabaseManager.get(QuestProgressData.class).load(player.getId());
+            DatabaseManager.get(QuestProgressData.class).load(questProgressAccountId(player));
 
             // Find player's guild
-            World.world.getGuilds().values().stream().map(g -> g.getMember(id)).findFirst().ifPresent(player::setGuildMember);
+            World.world.getGuilds().values().stream().map(g -> g.getMember(playerId)).findFirst().ifPresent(player::setGuildMember);
 
             // Add to world
             World.world.addPlayer(player);
@@ -75,6 +75,10 @@ public class PlayerData extends FunctionDAO<Player> {
             Main.stop("unknown");
         }
         return null;
+    }
+
+    static int questProgressAccountId(Player player) {
+        return Objects.requireNonNull(player).getAccID();
     }
 
     @Override

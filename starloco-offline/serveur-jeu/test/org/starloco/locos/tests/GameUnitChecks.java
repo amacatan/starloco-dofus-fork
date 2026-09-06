@@ -23,9 +23,11 @@ import org.starloco.locos.game.CrusherChecks;
 import org.starloco.locos.game.GameHandler;
 import org.starloco.locos.game.GameServer;
 import org.starloco.locos.game.DiceRollChecks;
+import org.starloco.locos.game.DocumentActionChecks;
 import org.starloco.locos.game.MimibioteChecks;
 import org.starloco.locos.game.OfflineMerchantChecks;
 import org.starloco.locos.game.SecureCraftRequestChecks;
+import org.starloco.locos.game.ScenarioActionDataChecks;
 import org.starloco.locos.game.world.WorldExtraMonsterChecks;
 import org.starloco.locos.guild.GuildFeatureCodec;
 import org.starloco.locos.guild.GuildFeatureChecks;
@@ -40,6 +42,7 @@ import org.starloco.locos.script.MapLuaChecks;
 import org.starloco.locos.script.QuestLuaChecks;
 import org.starloco.locos.script.ScriptVMChecks;
 import org.starloco.locos.script.proxy.SItemChecks;
+import org.starloco.locos.script.proxy.SPlayerChecks;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -66,6 +69,8 @@ public final class GameUnitChecks {
         MimibioteChecks.run();
         OfflineMerchantChecks.run();
         DiceRollChecks.run();
+        DocumentActionChecks.run();
+        ScenarioActionDataChecks.run();
         GuildFeatureChecks.run();
         CollectorChecks.run();
         PetEntryChecks.run();
@@ -85,6 +90,7 @@ public final class GameUnitChecks {
         QuestLuaChecks.run();
         ScriptVMChecks.run();
         SItemChecks.run();
+        SPlayerChecks.run();
         TrunkChecks.run();
         FighterChecks.run();
         SpellEffectChecks.run();

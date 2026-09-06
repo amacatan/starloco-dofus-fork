@@ -9,7 +9,7 @@ local sanctuaryKeyId = 8342
 function npc:onTalk(p, answer)
     local hasDungeonKey = p:getItem(sanctuaryKeyId) or hasKeyChainFor(p, sanctuaryKeyId)
     local showKeyResponse = 2876
-    if p:mapID() == 9638 then
+    if p:mapID() == 7858 then
         if answer == 0 then
             local responses = hasDungeonKey and {showKeyResponse, 2877, 2878} or {2877, 2878}
             p:ask(3236, responses)
@@ -31,11 +31,12 @@ function npc:onTalk(p, answer)
             p:endDialog()
         end
     elseif p:mapID() == 10110 then
-        p:ask(3253, {2864})
-    elseif answer == 2864 then
-        p:teleport(7858, 312)
-        p:endDialog()
-
+        if answer == 0 then
+            p:ask(3253, {2864})
+        elseif answer == 2864 then
+            p:teleport(7858, 312)
+            p:endDialog()
+        end
     end
 end
 

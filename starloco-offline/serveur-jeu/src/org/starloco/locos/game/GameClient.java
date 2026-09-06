@@ -6,6 +6,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import io.jsonwebtoken.Jwts;
@@ -85,6 +86,8 @@ import org.starloco.locos.util.generator.NameGenerator;
 public class GameClient {
 
     private static final int MAX_BREAKING_REPETITIONS = 10_000;
+    private static final Pattern TUTORIAL_COMPLETION_PACKET = Pattern.compile(
+            "^TV(0|[1-9][0-9]{0,9})(?:\\|[0-9]{1,10}\\|[0-7])?$");
 
     private final IoSession session;
     private Account account;
@@ -1601,8 +1604,9 @@ public class GameClient {
     private void parseDocumentPacket(String packet) {
         switch (packet.charAt(1)) {
             case 'V':
-                if(player.getExchangeAction() != null
-                && player.getExchangeAction().getType() != ExchangeAction.READING_DOCUMENT) {
+                ExchangeAction<?> action = player.getExchangeAction();
+                if (action != null
+                        && action.getType() == ExchangeAction.READING_DOCUMENT) {
                     player.setExchangeAction(null);
                 }
 
@@ -7835,24 +7839,31 @@ public class GameClient {
      * Other *
      */
     private void parseTutorialsPacket(String packet) {
-        if(this.player.getExchangeAction() == null || this.player.getExchangeAction().getType() != ExchangeAction.IN_SCENARIO)
+        Integer actionListId = parseTutorialCompletionActionListId(packet);
+        if (actionListId == null || this.player == null)
             return;
-        String[] param = packet.split("\\|");
-        ScenarioActionData sad = (ScenarioActionData) this.player.getExchangeAction().getValue();
 
-        if(packet.charAt(1) != 'V') {
+        ExchangeAction<?> action = this.player.getExchangeAction();
+        if (action == null || action.getType() != ExchangeAction.IN_SCENARIO
+                || !(action.getValue() instanceof ScenarioActionData))
             return;
+
+        ((ScenarioActionData) action.getValue()).onCompletion(
+                this.player, actionListId);
+    }
+
+    static Integer parseTutorialCompletionActionListId(String packet) {
+        if (packet == null)
+            return null;
+
+        Matcher matcher = TUTORIAL_COMPLETION_PACKET.matcher(packet);
+        if (!matcher.matches())
+            return null;
+        try {
+            return Integer.parseInt(matcher.group(1));
+        } catch (NumberFormatException ignored) {
+            return null;
         }
-        boolean succeed = packet.charAt(2) == '1';
-
-        // Move player to expected cell (FIXME can probably be used to teleport)
-        this.player.set_orientation(Byte.parseByte(param[2]));
-        this.player.getCurCell().removePlayer(this.player);
-        GameCase cell = this.player.getCurMap().getCase(Short.parseShort(param[1]));
-        cell.addPlayer(player);
-        this.player.setCurCell(cell);
-
-        sad.onCompletion(player, succeed);
     }
 
     /**

@@ -1333,11 +1333,16 @@ public class Player implements Scripted<SPlayer>, Actor {
         return true;
     }
 
-    public void startScenario(int id, String date, BiConsumer<Player,Boolean> onEnd) {
-        exchangeAction =  new ExchangeAction<>(
-                ExchangeAction.IN_SCENARIO,
-                new ScenarioActionData(exchangeAction, onEnd));
+    public synchronized boolean startScenario(int id, String date, BiConsumer<Player,Boolean> onEnd) {
+        ScenarioActionData scenario = ScenarioActionData.create(
+                exchangeAction, this, id, date, onEnd);
+        if (scenario == null)
+            return false;
+
+        setExchangeAction(new ExchangeAction<>(ExchangeAction.IN_SCENARIO,
+                scenario));
         SocketManager.GAME_SEND_TUTORIAL_CREATE(this, id, date);
+        return true;
     }
 
     @Override
@@ -5989,7 +5994,8 @@ public class Player implements Scripted<SPlayer>, Actor {
         return action.getType() == ExchangeAction.USING_OBJECT
                 || action.getType() == ExchangeAction.CRAFTING
                 || action.getType() == ExchangeAction.BREAKING_OBJECTS
-                || action.getType() == ExchangeAction.CRAFTING_SECURE_WITH;
+                || action.getType() == ExchangeAction.CRAFTING_SECURE_WITH
+                || action.getType() == ExchangeAction.IN_SCENARIO;
     }
 
     public void refreshCraftSecure(boolean unequip) {

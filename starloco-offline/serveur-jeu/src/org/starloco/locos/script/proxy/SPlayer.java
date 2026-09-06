@@ -9,6 +9,8 @@ import org.classdump.luna.runtime.LuaFunction;
 import org.starloco.locos.area.map.GameMap;
 import org.starloco.locos.client.Player;
 import org.starloco.locos.common.SocketManager;
+import org.starloco.locos.database.DatabaseManager;
+import org.starloco.locos.database.data.login.ObjectData;
 import org.starloco.locos.entity.monster.MobGroupDef;
 import org.starloco.locos.entity.monster.MonsterGroup;
 import org.starloco.locos.fight.spells.Spell;
@@ -263,12 +265,12 @@ public class SPlayer extends DefaultUserdata<Player> {
     }
 
     @SuppressWarnings("unused")
-    private static void startScenario(Player p, ArgumentIterator args) {
+    private static boolean startScenario(Player p, ArgumentIterator args) {
         int id = args.nextInt();
         ByteString date = args.nextString();
         LuaFunction<?,?,?,?,?> onEnd = args.nextFunction();
 
-        p.startScenario(id, date.toString(), (player, succeed) -> DataScriptVM.getInstance().call(onEnd, player.scripted(), succeed));
+        return p.startScenario(id, date.toString(), (player, succeed) -> DataScriptVM.getInstance().call(onEnd, player.scripted(), succeed));
     }
 
     @SuppressWarnings("unused")
@@ -553,16 +555,69 @@ public class SPlayer extends DefaultUserdata<Player> {
         boolean isPerfect = args.nextOptionalBoolean(false);
         boolean display = args.nextOptionalBoolean(true);
 
-        boolean posAlreadyFilled = p.getEquippedObjects().stream()
-            .anyMatch(i -> i.getPosition() == pos);
-        if(posAlreadyFilled) return false;
+        return addItem(p, itemID, quantity, pos, isPerfect, display,
+                DatabaseManager.get(ObjectData.class));
+    }
+
+    static boolean addItem(Player p, int itemID, int quantity, int pos,
+                           boolean isPerfect, boolean display,
+                           ObjectData objectData) {
+        if (quantity <= 0 || objectData == null) return false;
+
+        if (pos != Constant.ITEM_POS_NO_EQUIPED) {
+            synchronized (p.getItems()) {
+                boolean posAlreadyFilled = p.getItems().values().stream()
+                        .anyMatch(i -> i.getPosition() == pos);
+                if (posAlreadyFilled) return false;
+            }
+        }
 
         ObjectTemplate tmpl = World.world.getObjTemplate(itemID);
+        if (tmpl == null) return false;
+
         GameObject item = tmpl.createNewItem(quantity, isPerfect);
+        if (item == null) return false;
+
         item.setPosition(pos);
 
-        p.addItem(item, pos==Constant.ITEM_POS_NO_EQUIPED, display);
+        if (pos != Constant.ITEM_POS_NO_EQUIPED
+                && !objectData.updateSafely(item)) {
+            deleteCreatedItem(objectData, item, "position persistence failure");
+            return false;
+        }
+
+        final boolean addedAsNew;
+        try {
+            addedAsNew = p.addItem(item,
+                    pos == Constant.ITEM_POS_NO_EQUIPED, display);
+        } catch (RuntimeException exception) {
+            if (p.getItems().get(item.getGuid()) == item) {
+                // Player.addItem mutates the inventory before sending packets.
+                // Keep an already-granted item durable if notification fails.
+                World.world.addGameObject(item);
+            } else {
+                deleteCreatedItem(objectData, item, "inventory insertion failure");
+            }
+            throw exception;
+        }
+
+        if (addedAsNew) {
+            World.world.addGameObject(item);
+        } else {
+            // createNewItem already inserted a row, but a successful stack merge
+            // only keeps the pre-existing inventory object.
+            deleteCreatedItem(objectData, item, "stack merge");
+        }
         return true;
+    }
+
+    private static void deleteCreatedItem(ObjectData objectData, GameObject item,
+                                          String reason) {
+        if (!objectData.deleteSafely(item)) {
+            ScriptVM.logger.error(
+                    "Could not delete temporary scripted item #{} after {}",
+                    item.getGuid(), reason);
+        }
     }
 
     @SuppressWarnings("unused")

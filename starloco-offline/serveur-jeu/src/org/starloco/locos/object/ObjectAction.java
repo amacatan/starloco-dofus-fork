@@ -356,7 +356,7 @@ public class ObjectAction {
                             return;
                         }
 
-                        player.unlearnJob(jobStats.getId());
+                        player.unlearnJob(job);
                         break;
 
                     case 10://EPO.

@@ -8,6 +8,7 @@ import org.classdump.luna.lib.ArgumentIterator;
 import org.classdump.luna.runtime.LuaFunction;
 import org.starloco.locos.area.map.GameMap;
 import org.starloco.locos.client.Player;
+import org.starloco.locos.entity.map.House;
 import org.starloco.locos.common.SocketManager;
 import org.starloco.locos.database.DatabaseManager;
 import org.starloco.locos.database.data.login.ObjectData;
@@ -102,9 +103,52 @@ public class SPlayer extends DefaultUserdata<Player> {
     }
 
     @SuppressWarnings("unused")
+    private static void openGuildCreationPanel(Player p) {
+        p.openGuildCreationPanel();
+    }
+
+    private static void sendZaapiList(Player p, ArgumentIterator args) {
+    String list = args.nextString().toString();
+    SocketManager.GAME_SEND_ZAAPI_PACKET(p, list);
+}
+
+    @SuppressWarnings("unused")
     private static void openTrunk(Player p, ArgumentIterator args) {
         int cellID = args.nextInt();
         p.openTrunk(cellID);
+    }
+
+    @SuppressWarnings("unused")
+    private static void openMountPark(Player p, ArgumentIterator args) {
+        p.openMountPark();
+    }
+
+    @SuppressWarnings("unused")
+    private static void buyMountPark(Player p, ArgumentIterator args) {
+        p.buyMountPark();
+    }
+
+    @SuppressWarnings("unused")
+    private static void sellMountPark(Player p, ArgumentIterator args) {
+        p.sellMountPark();
+    }
+
+    @SuppressWarnings("unused")
+    private static void editMountParkPrice(Player p, ArgumentIterator args) {
+        p.editMountParkPrice();
+    }
+
+    @SuppressWarnings("unused")
+    private static SHouse houseAt(Player p, ArgumentIterator args) {
+        int cellId = args.nextInt();
+        House h = World.world.getHouseManager().getHouseIdByCoord(p.getCurMap().getId(), cellId);
+        return h == null ? null : h.scripted();
+    }
+
+    @SuppressWarnings("unused")
+    private static void setInHouse(Player p, ArgumentIterator args) {
+        SHouse h = args.nextUserdata("SHouse", SHouse.class);
+        p.setInHouse(h.getUserValue());
     }
 
     @SuppressWarnings("unused")

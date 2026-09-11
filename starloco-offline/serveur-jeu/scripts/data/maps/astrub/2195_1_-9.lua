@@ -17,8 +17,15 @@ map.mobGroupsMaxSize = 8
 -- '0;0;0;0;0;0;0' forbiddens -> capabilities ? Or script ?
 
 map.onMovementEnd = {
-	[163] = moveEndTeleport(2196, 328),
+
+	[163] = function(md, m, p)
+		-- Item 1575 check gildestone
+		if p:getItem(1575, 1) == nil then
+						--send info to user that he needs a gildestone
+			return false
+		end
+		p:teleport(2196, 328)
+		return true
+	end,
 	[388] = moveEndTeleport(2056, 323),
 }
-
-

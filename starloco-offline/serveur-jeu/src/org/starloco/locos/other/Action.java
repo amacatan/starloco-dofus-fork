@@ -823,7 +823,7 @@ public class Action {
                 JobStat m2 = player.getMetierByID(Job);
                 if (m2 == null)
                     return true;
-                player.unlearnJob(m2.getId());
+                player.unlearnJob(Job);
                 break;
 
             case 24://Morph

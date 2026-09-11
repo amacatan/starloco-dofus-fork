@@ -10,6 +10,14 @@ function npc:onTalk(p, answer)
     if answer == 0 then p:ask(2403, {2043, 2044})
     elseif answer == 2043 then p:ask(2404)
     elseif answer == 2044 then p:ask(2405, {2046, 2045})
+    elseif answer == 2046 then
+        -- Korrekte Methode: tryLearnJob
+        if p:tryLearnJob(ShoemakerJob) then
+            p:endDialog()
+        else
+            -- Falls die Bedingungen nicht erfüllt sind (z.B. primärer Beruf noch nicht Lvl 30)
+            p:ask(1489)
+        end
     elseif answer == 2045 then p:endDialog()
     elseif answer == 2046 then p:ask(2406)
     end

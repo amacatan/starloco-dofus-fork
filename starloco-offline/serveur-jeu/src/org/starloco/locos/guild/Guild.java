@@ -318,7 +318,7 @@ public class Guild {
     }
 
     public int getStats(int id) {
-        return stats.get(id);
+        return stats.getOrDefault(id, 0);
     }
 
     //region Parse packet

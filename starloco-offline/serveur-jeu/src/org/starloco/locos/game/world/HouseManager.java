@@ -228,6 +228,10 @@ public class HouseManager {
 
     public void parseHG(Player P, String packet) {
         House h = P.getInHouse();
+        if (h == null) {
+            World.world.logger.warn("parseHG: player " + (P == null ? "null" : P.getName()) + " not in a house");
+            return;
+        }
         if (P.getGuild() == null)
             return;
         if (packet != null) {

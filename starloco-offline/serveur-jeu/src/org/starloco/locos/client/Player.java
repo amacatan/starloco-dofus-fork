@@ -3460,6 +3460,17 @@ public class Player implements Scripted<SPlayer>, Actor {
         return data.getNpcTemplate() != null && data.getNpcTemplate().isBankClerk();
     }
 
+    public void openGuildCreationPanel() {
+        // Prüfe ob Spieler bereits eine Gilde hat
+        if (this.getGuild() != null || this.getGuildMember() != null) {
+            SocketManager.GAME_SEND_gC_PACKET(this, "Ea");
+            return;
+        }
+        
+        // Öffne Gildenerstellungs-Panel
+        SocketManager.GAME_SEND_gn_PACKET(this);
+    }
+
     public String getStringVar(String str) {
         switch (str) {
             case "[name]":
@@ -3695,13 +3706,48 @@ public class Player implements Scripted<SPlayer>, Actor {
      * MountPark *
      * @param target
      */
+    public void openMountPark() {
+        openMountPark(this.curMap != null ? this.curMap.getMountPark() : null);
+    }
+
+    public void buyMountPark() {
+        final MountPark park = this.curMap != null ? this.curMap.getMountPark() : null;
+        if (park == null) {
+            return;
+        }
+        SocketManager.GAME_SEND_R_PACKET(this, "D" + park.getPrice() + "|" + park.getPrice());
+    }
+
+    public void sellMountPark() {
+        final MountPark park = this.curMap != null ? this.curMap.getMountPark() : null;
+        if (park == null) {
+            return;
+        }
+        if (park.getOwner() == -1) {
+            SocketManager.GAME_SEND_Im_PACKET(this, "194");
+            return;
+        }
+        if (park.getOwner() != this.getId()) {
+            SocketManager.GAME_SEND_Im_PACKET(this, "195");
+            return;
+        }
+        SocketManager.GAME_SEND_R_PACKET(this, "D" + park.getPrice() + "|" + park.getPrice());
+    }
+
+    public void editMountParkPrice() {
+        sellMountPark();
+    }
+
     public void openMountPark(MountPark target) {
         if (this.getDeshonor() >= 5) {
             SocketManager.GAME_SEND_Im_PACKET(this, "183");
             return;
         }
 
-        final MountPark park = target == null ? this.curMap.getMountPark() : target;
+        final MountPark park = target == null ? this.curMap != null ? this.curMap.getMountPark() : null : target;
+        if (park == null) {
+            return;
+        }
 
         if (this.getGuildMember() != null && park.getGuild() != null) {
             if (park.getGuild().getId() == this.getGuildMember().getGuild().getId()) {
@@ -3755,6 +3801,7 @@ public class Player implements Scripted<SPlayer>, Actor {
         SocketManager.GAME_SEND_ECK_PACKET(this, 16, packet.toString());
         TimerWaiter.addNext(() -> park.getEtable().stream().filter(mount -> mount != null && mount.getSize() == 50 && mount.getOwner() == this.getId()).forEach(mount -> SocketManager.GAME_SEND_Ee_PACKET_WAIT(this, '~', mount.parse())), 500);
     }
+
 
     public void fullPDV() {
         this.setPdv(this.getMaxPdv());

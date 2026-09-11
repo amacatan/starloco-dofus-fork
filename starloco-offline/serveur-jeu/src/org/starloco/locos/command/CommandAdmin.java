@@ -1382,7 +1382,7 @@ public class CommandAdmin extends AdminUser {
             JobStat jobStats = perso.getMetierByID(job);
             if (jobStats == null)
                 return;
-            perso.unlearnJob(jobStats.getId());
+            perso.unlearnJob(job);
             SocketManager.GAME_SEND_MESSAGE(perso, perso.getLang().trans("command.commandadmin.unlearn.spell"));
             this.sendMessage("Vous avez supprimé le métier "
                     + job + " sur le personnage " + perso.getName() + ".");

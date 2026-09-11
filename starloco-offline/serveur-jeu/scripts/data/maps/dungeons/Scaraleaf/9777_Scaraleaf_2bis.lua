@@ -28,3 +28,6 @@ map.allowedMobGrades = {
 }
 
 
+map.onMovementEnd = {
+    [393] = moveEndTeleport(9776, 436)
+}

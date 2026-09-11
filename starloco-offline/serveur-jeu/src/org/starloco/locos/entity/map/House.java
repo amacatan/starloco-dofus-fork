@@ -5,9 +5,11 @@ import org.starloco.locos.common.SocketManager;
 import org.starloco.locos.game.action.ExchangeAction;
 import org.starloco.locos.game.world.World;
 import org.starloco.locos.kernel.Constant;
-
+import org.starloco.locos.script.proxy.SHouse;
 import java.util.Map;
 import java.util.TreeMap;
+
+
 
 public class House {
     private int id;
@@ -23,6 +25,7 @@ public class House {
     private int houseCellId;
     //Droits de chaques maisons
     private Map<Integer, Boolean> haveRight = new TreeMap<>();
+    
 
     public House(int id, int mapId, int cellId, int houseMapId, int houseCellId) {
         this.id = id;
@@ -31,7 +34,9 @@ public class House {
         this.houseMapId = houseMapId;
         this.houseCellId = houseCellId;
     }
-
+public SHouse scripted() {
+    return new SHouse(this);
+}
     public void open(Player P, String packet, boolean isHome)//Ouvrir une maison ;o
     {
         if ((!this.canDo(Constant.H_OCANTOPEN) && (packet.compareTo(this.getKey()) == 0))

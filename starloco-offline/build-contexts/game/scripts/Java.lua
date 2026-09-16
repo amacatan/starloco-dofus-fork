@@ -142,9 +142,24 @@ function Player:savePosition(mapId, cellId, sendInfoMsg) end
 ---@return void
 function Player:openZaap() end
 
+---@return void
+function Player:openGuildCreationPanel() end
+
 ---@param cellID number
 ---@return void
 function Player:openTrunk(cellID) end
+
+---@return void
+function Player:openMountPark() end
+
+---@return void
+function Player:buyMountPark() end
+
+---@return void
+function Player:sellMountPark() end
+
+---@return void
+function Player:editMountParkPrice() end
 
 ---@param typeID number
 ---@return boolean worked

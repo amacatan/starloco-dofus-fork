@@ -1546,6 +1546,7 @@ public class GameClient {
         Collector collector = World.world.getCollector(id);
 
         if (collector != null && collector.getMap() == player.getCurMap().getId()) {
+            player.setExchangeAction(new ExchangeAction<>(ExchangeAction.TALKING_WITH, collector.getId()));
             SocketManager.GAME_SEND_DIALOG_CREATE_PACKET(this, id);
             send(World.world.getGuild(collector.getGuildId()).encodeTaxCollectorDQ());
             return;
@@ -1564,6 +1565,12 @@ public class GameClient {
 
         if (action == null || action.getType() != ExchangeAction.TALKING_WITH)
             return;
+
+        if (!(action.getValue() instanceof NpcDialogActionData)) {
+            this.player.setExchangeAction(null);
+            SocketManager.GAME_SEND_END_DIALOG_PACKET(this);
+            return;
+        }
 
         String[] infos = packet.substring(2).split("\\|");
 

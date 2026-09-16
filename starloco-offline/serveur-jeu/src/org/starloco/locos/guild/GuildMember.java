@@ -21,7 +21,14 @@ public class GuildMember {
     private volatile int rights = 0;
     private String lastCo;
 
-    GuildMember(int playerId, Guild guild, int rank, long xpGave, byte xpGive, int rights, String lastCo) {
+    // Offline-Daten aus der Datenbank
+    private String name;
+    private int lvl;
+    private int gfx;
+    private int align;
+
+    // Konstruktor mit 11 Parametern (Aufruf aus Guild.java)
+    public GuildMember(int playerId, Guild guild, int rank, long xpGave, byte xpGive, int rights, String lastCo, String name, int lvl, int gfx, int align) {
         this.playerId = playerId;
         this.guild = guild;
         this.rank = rank;
@@ -29,6 +36,15 @@ public class GuildMember {
         this.xpGive = xpGive;
         this.rights = rights;
         this.lastCo = lastCo;
+        this.name = name;
+        this.lvl = lvl;
+        this.gfx = gfx;
+        this.align = align;
+    }
+
+    // Konstruktor mit 7 Parametern (für Abwärtskompatibilität)
+    public GuildMember(int playerId, Guild guild, int rank, long xpGave, byte xpGive, int rights, String lastCo) {
+        this(playerId, guild, rank, xpGave, xpGive, rights, lastCo, "", 1, 0, 0);
     }
 
     public Player getPlayer() {
@@ -40,19 +56,27 @@ public class GuildMember {
     }
 
     public String getName() {
-        return getPlayer().getName();
+        Player p = getPlayer();
+        if (p != null) return p.getName();
+        return name;
     }
 
     public int getAlign() {
-        return getPlayer().getAlignment();
+        Player p = getPlayer();
+        if (p != null) return p.getAlignment();
+        return align;
     }
 
     public int getGfx() {
-        return getPlayer().getGfxId();
+        Player p = getPlayer();
+        if (p != null) return p.getGfxId();
+        return gfx;
     }
 
     public int getLvl() {
-        return getPlayer().getLevel();
+        Player p = getPlayer();
+        if (p != null) return p.getLevel();
+        return lvl;
     }
 
     public Guild getGuild() {
@@ -97,7 +121,9 @@ public class GuildMember {
     }
 
     int getHoursFromLastCo() {
+        if (this.lastCo == null || this.lastCo.isEmpty()) return 0;
         String[] split = this.lastCo.split("~");
+        if (split.length < 3) return 0;
         LocalDate localDate = new LocalDate(Integer.parseInt(split[0]), Integer.parseInt(split[1]), Integer.parseInt(split[2]));
         return Days.daysBetween(localDate, new LocalDate()).getDays() * 24;
     }
@@ -123,7 +149,6 @@ public class GuildMember {
 
         this.rank = rank;
         this.xpGive = xp;
-
         this.rights = right;
 
         ((GuildMemberData) DatabaseManager.get(GuildMemberData.class)).updateMembership(this);

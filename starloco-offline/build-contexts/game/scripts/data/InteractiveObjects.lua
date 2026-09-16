@@ -222,6 +222,7 @@ local GfxToObjectId = {
     [1985] = 10002, -- Wanted scroll (Up)
     [1986] = 10003, -- Wanted scroll (Down)
     [1988] = 10004, -- Big wanted board
+    [1324] = 10005, -- Create guild
 }
 
 RegisterObjectForSprites(GfxToObjectId)

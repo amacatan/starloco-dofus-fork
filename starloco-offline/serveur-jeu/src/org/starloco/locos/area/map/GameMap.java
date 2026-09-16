@@ -489,6 +489,38 @@ public class GameMap {
         return Optional.ofNullable(World.world.getSubArea(data.subAreaID)).map(SubArea::getArea).orElse(null);
     }
 
+    public boolean hasDungeon() {
+        if (this.data != null && this.data.isDungeon()) {
+            return true;
+        }
+        SubArea sa = this.getSubArea();
+        if (sa != null && sa.getName() != null) {
+            String name = sa.getName().toLowerCase();
+            if (name.contains("donjon")
+                    || name.contains("antre")
+                    || name.contains("labyrinthe")
+                    || name.contains("caverne du koulosse")
+                    || name.contains("repaire de skeunk")
+                    || name.contains("repaire des pandikazes")
+                    || name.contains("biblioth\u00e8que du ma\u00eetre corbac")
+                    || name.contains("canop\u00e9e du kimbo")
+                    || name.contains("grotte hesque")
+                    || name.contains("arche d'otoma\u00ef")
+                    || name.contains("laboratoire du tynril")
+                    || name.contains("goulet du rasboul")
+                    || name.contains("sanctuaire de qu'tan")
+                    || name.contains("belv\u00e9d\u00e8re d'ilzyzaelle")
+                    || name.contains("sanctuaire hotomani")
+                    || name.contains("sanctuaire des dragoeufs")
+                    || name.contains("ch\u00e2teau des wabbits")
+                    || name.contains("arbre hakam")
+                    || name.contains("laboratoire cach\u00e9")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public MountPark getMountPark() {
         return this.mountPark;
     }

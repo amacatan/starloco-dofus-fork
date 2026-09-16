@@ -20,4 +20,15 @@ map.onMovementEnd = {
 	[343] = moveEndTeleport(2195, 178),
 }
 
+map.interactiveObjects = {
+    [253] = 10005
+}
 
+map.onObjectUse = {
+    [253] = function(p, skillId)
+        if skillId == 0 then
+            p:openGuildCreationPanel()
+        end
+        return true
+    end
+}

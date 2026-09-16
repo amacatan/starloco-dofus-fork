@@ -24,7 +24,10 @@ public class GuildMemberData extends FunctionDAO<Player> {
                     try {
                         Guild g = World.world.getGuild(result.getInt("guild"));
                         if (g != null)
-                            g.addMember(result.getInt("guid"), result.getInt("rank"), result.getByte("pxp"), result.getLong("xpdone"), result.getInt("rights"), result.getString("lastConnection").replaceAll("-", "~"));
+                            g.addMember(result.getInt("guid"), result.getInt("rank"), result.getByte("pxp"),
+                                    result.getLong("xpdone"), result.getInt("rights"),
+                                    result.getString("lastConnection").replace('-', '~'), result.getString("name"),
+                                    result.getInt("level"), result.getInt("gfxid"), result.getInt("align"));
                     } catch (Exception e) {
                         e.printStackTrace();
                     }

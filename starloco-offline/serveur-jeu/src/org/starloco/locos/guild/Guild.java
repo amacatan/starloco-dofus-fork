@@ -24,13 +24,13 @@ public class Guild {
     private long xp;
     private final long date;
     private String name = "", emblem = "";
-    private int lvl, capital = 0, nbCollectors = 0;
+    private int lvl = 1, capital = 0, nbCollectors = 0;
     private String note = "", noteAuthor = "";
     private long noteDate = 0;
     private String informations = "", informationsAuthor = "";
     private long informationsDate = 0;
     private final Map<Integer, GuildMember> members = new TreeMap<>();
-    private final Map<Integer, SortStats> spells = new HashMap<>(); // <Id, Level>
+    private final Map<Integer, SortStats> spells = new TreeMap<>(); // <Id, Level>
     private final Map<Integer, Integer> stats = new HashMap<>(); // <Effect, Quantity>
     private final Map<Integer, String> rankNames = new TreeMap<>();
 
@@ -39,6 +39,7 @@ public class Guild {
         this.emblem = emblem;
         this.lvl = 1;
         this.xp = 0;
+        this.nbCollectors = 0;
         this.date = System.currentTimeMillis();
         this.decompileSpell("462;0|461;0|460;0|459;0|458;0|457;0|456;0|455;0|454;0|453;0|452;0|451;0|");
         this.decompileStats("176;100|158;1000|124;0|");
@@ -70,11 +71,19 @@ public class Guild {
         this.rankNames.putAll(GuildFeatureCodec.parseStoredRankNames(rankNames));
         this.decompileSpell(sorts);
         this.decompileStats(stats);
+        if (this.nbCollectors < 0) {
+            this.nbCollectors = 0;
+        }
+        int maxCapital = Math.max(0, (this.lvl - 1) * 5);
+        if (this.capital > maxCapital) {
+            this.capital = Math.max(0, maxCapital - this.calculateSpentCapital());
+        }
     }
 
     public synchronized void addMember(int id, int r, byte pXp, long x, int ri,
-                                       String lastCo) {
-        GuildMember guildMember = new GuildMember(id, this, r, x, pXp, ri, lastCo);
+                                       String lastCo, String name, int level, int gfx, int align) {
+        GuildMember guildMember = new GuildMember(id, this, r, x, pXp, ri, lastCo,
+                name, level, gfx, align);
         this.members.put(id, guildMember);
         if(guildMember.getPlayer() != null) {
             guildMember.getPlayer().setGuildMember(guildMember);
@@ -82,9 +91,11 @@ public class Guild {
     }
 
     public synchronized GuildMember addNewMember(Player player) {
-        GuildMember guildMember = new GuildMember(player.getId(), this, 0, 0, (byte) 0, 0, player.getAccount().getLastConnectionDate());
+        GuildMember guildMember = new GuildMember(player.getId(), this, 0, 0, (byte) 0, 0,
+                player.getAccount().getLastConnectionDate(), player.getName(), player.getLevel(),
+                player.getGfxId(), player.getAlignment());
         this.members.put(player.getId(), guildMember);
-        guildMember.getPlayer().setGuildMember(guildMember);
+        player.setGuildMember(guildMember);
         return guildMember;
     }
 
@@ -97,11 +108,36 @@ public class Guild {
     }
 
     public int getNbCollectors() {
-        return this.nbCollectors;
+        return Math.max(0, this.nbCollectors);
     }
 
     public void setNbCollectors(int nbr) {
-        this.nbCollectors = nbr;
+        this.nbCollectors = Math.max(0, nbr);
+    }
+
+    public int resetNbCollectors() {
+        int current = this.getNbCollectors();
+        if (current <= 0) {
+            this.setNbCollectors(0);
+            return -1;
+        }
+        int pointsRefunded = current * 10;
+        this.setNbCollectors(0);
+        return pointsRefunded;
+    }
+
+    public int calculateSpentCapital() {
+        int spent = 0;
+        spent += Math.max(0, this.getStats(Constant.STATS_ADD_PROS) - 100);
+        spent += Math.max(0, this.getStats(Constant.STATS_ADD_PODS) - 1000) / 20;
+        spent += Math.max(0, this.getStats(Constant.STATS_ADD_SAGE));
+        spent += Math.max(0, this.getNbCollectors()) * 10;
+        for (SortStats ss : this.spells.values()) {
+            if (ss != null && ss.getLevel() > 0) {
+                spent += ss.getLevel() * 5;
+            }
+        }
+        return spent;
     }
 
     public int getCapital() {
@@ -195,12 +231,14 @@ public class Guild {
         this.spells.put(id, ((SS == null) ? World.world.getSort(id).getStatsByLevel(1) : World.world.getSort(id).getStatsByLevel(SS.getLevel() + 1)));
     }
 
-    public void unBoostSpell(int id) {
+    public boolean unBoostSpell(int id) {
         SortStats SS = this.spells.get(id);
-        if (SS != null) {
+        if (SS != null && SS.getLevel() > 0) {
             this.capital += 5 * SS.getLevel();
             this.spells.put(id, null);
+            return true;
         }
+        return false;
     }
 
     public String getName() {
@@ -224,7 +262,7 @@ public class Guild {
     }
 
     public synchronized boolean haveTenMembers() {
-        return this.id == 1 || this.id == 2 || (this.members.size() >= 10);
+        return true;
     }
 
     public synchronized List<Player> getPlayers() {
@@ -284,8 +322,21 @@ public class Guild {
     }
 
     private void decompileStats(String statsStr) {
-        for (String split : statsStr.split("\\|"))
-            this.stats.put(Integer.parseInt(split.split(";")[0]), Integer.parseInt(split.split(";")[1]));
+        for (String split : statsStr.split("\\|")) {
+            if (split.isEmpty()) continue;
+            String[] data = split.split(";");
+            if (data.length < 2) continue;
+            this.stats.put(Integer.parseInt(data[0]), Integer.parseInt(data[1]));
+        }
+        if (this.stats.getOrDefault(Constant.STATS_ADD_PODS, 0) < 1000) {
+            this.stats.put(Constant.STATS_ADD_PODS, 1000);
+        }
+        if (this.stats.getOrDefault(Constant.STATS_ADD_PROS, 0) < 100) {
+            this.stats.put(Constant.STATS_ADD_PROS, 100);
+        }
+        if (this.stats.getOrDefault(Constant.STATS_ADD_SAGE, 0) < 0) {
+            this.stats.put(Constant.STATS_ADD_SAGE, 0);
+        }
     }
 
     public String compileStats() {
@@ -308,48 +359,91 @@ public class Guild {
     }
 
     public void upgradeStats(int id, int add) {
-        this.stats.put(id, (this.stats.get(id) + add));
+        this.stats.put(id, this.getStats(id) + add);
     }
 
     public int resetStats(int id) {
-        int quantity = this.stats.get(id);
-        this.stats.put(id, 0);
-        return quantity;
+        switch (id) {
+            case Constant.STATS_ADD_PODS: {
+                int current = this.getStats(Constant.STATS_ADD_PODS);
+                if (current <= 1000) {
+                    this.stats.put(Constant.STATS_ADD_PODS, 1000);
+                    return -1;
+                }
+                int pointsRefunded = (current - 1000) / 20;
+                this.stats.put(Constant.STATS_ADD_PODS, 1000);
+                return pointsRefunded;
+            }
+            case Constant.STATS_ADD_PROS: {
+                int current = this.getStats(Constant.STATS_ADD_PROS);
+                if (current <= 100) {
+                    this.stats.put(Constant.STATS_ADD_PROS, 100);
+                    return -1;
+                }
+                int pointsRefunded = current - 100;
+                this.stats.put(Constant.STATS_ADD_PROS, 100);
+                return pointsRefunded;
+            }
+            case Constant.STATS_ADD_SAGE: {
+                int current = this.getStats(Constant.STATS_ADD_SAGE);
+                if (current <= 0) {
+                    this.stats.put(Constant.STATS_ADD_SAGE, 0);
+                    return -1;
+                }
+                int pointsRefunded = current;
+                this.stats.put(Constant.STATS_ADD_SAGE, 0);
+                return pointsRefunded;
+            }
+            default:
+                return -1;
+        } 
     }
 
     public int getStats(int id) {
-        return stats.getOrDefault(id, 0);
+        switch (id) {
+            case Constant.STATS_ADD_PODS:
+                return Math.max(1000, stats.getOrDefault(id, 1000));
+            case Constant.STATS_ADD_PROS:
+                return Math.max(100, stats.getOrDefault(id, 100));
+            case Constant.STATS_ADD_SAGE:
+                return Math.max(0, stats.getOrDefault(id, 0));
+            default:
+                return stats.getOrDefault(id, 0);
+        }
     }
 
     //region Parse packet
     public String parseCollectorToGuild() {
-        return String.valueOf(getNbCollectors()) + "|" + Collector.countCollectorGuild(getId()) + "|" + 100 * getLvl() + "|" + getLvl() + "|" + getStats(158) + "|" + getStats(176) + "|" + getStats(124) + "|" + getNbCollectors() + "|" + getCapital() + "|" + (1000 + (10 * getLvl())) + "|" + compileSpell();
+        return (100 * getLvl()) + "|" + getLvl() + "|" + getStats(Constant.STATS_ADD_PODS) + "|" + getStats(Constant.STATS_ADD_PROS) + "|" + getStats(Constant.STATS_ADD_SAGE) + "|" + getNbCollectors() + "|" + getCapital() + "|" + compileSpell();
     }
 
     public String encodeTaxCollectorDQ() {
-        return String.join(",","DQ;" + getName(), String.valueOf(getStats(Constant.STATS_ADD_PODS)), String.valueOf(getStats(Constant.STATS_ADD_PROS)), String.valueOf(getStats(Constant.STATS_ADD_SAGE)), String.valueOf(getNbCollectors()));
+        return "DQ1;" + String.join(",", getName(), String.valueOf(getStats(Constant.STATS_ADD_PODS)), String.valueOf(getStats(Constant.STATS_ADD_PROS)), String.valueOf(getStats(Constant.STATS_ADD_SAGE)), String.valueOf(getNbCollectors()));
     }
 
     public synchronized String parseMembersToGM() {
         StringBuilder str = new StringBuilder();
-        for (GuildMember GM : this.members.values()) {
-            String online = "0";
-            if (GM.getPlayer() != null)
-                if (GM.getPlayer().isOnline())
-                    online = "1";
-            if (str.length() != 0)
+        for (GuildMember member : this.members.values()) {
+            if (member == null) {
+                continue;
+            }
+
+            Player player = member.getPlayer();
+            if (str.length() != 0) {
                 str.append("|");
-            str.append(GM.getPlayerId()).append(";");
-            str.append(GM.getName()).append(";");
-            str.append(GM.getLvl()).append(";");
-            str.append(GM.getGfx()).append(";");
-            str.append(GM.getRank()).append(";");
-            str.append(GM.getXpGave()).append(";");
-            str.append(GM.getXpGive()).append(";");
-            str.append(GM.getRights()).append(";");
-            str.append(online).append(";");
-            str.append(GM.getAlign()).append(";");
-            str.append(GM.getHoursFromLastCo());
+            }
+
+            str.append(member.getPlayerId()).append(";");
+            str.append(member.getName()).append(";");
+            str.append(member.getLvl()).append(";");
+            str.append(member.getGfx()).append(";");
+            str.append(member.getRank()).append(";");
+            str.append(member.getXpGave()).append(";");
+            str.append(member.getXpGive()).append(";");
+            str.append(member.getRights()).append(";");
+            str.append(player != null && player.isOnline() ? "1" : "0").append(";");
+            str.append(member.getAlign()).append(";");
+            str.append(member.getHoursFromLastCo());
         }
         return str.toString();
     }

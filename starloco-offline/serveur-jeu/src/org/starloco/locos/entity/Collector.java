@@ -143,42 +143,21 @@ public class Collector {
     }
 
     public static String parseToGuild(int GuildID) {
-        /*
-         * 44705000000000
-         * 1486217399798
-         * gITM +
-         * id; -10000
-         * N1, 14
-         * N2, 26
-         * Owner, Lcoos
-         * startDate, date collector poser
-         * lastHName, dernier r�colteur
-         * lastHD, date a laquel le perco a �t� r�colt�
-         * nextHD; date a laquel le perco pourra �tre r�colt�
-         * mapid;
-         * state; 0 r�colte, 1 attaque, 2 combat, � la fin du timer, passe en combat automatiquement
-         * time; temps en ms quand le perco a �t� lanc�
-         * maxTimer;temps en ms quand le combat se lance
-         * numbPlayer: 1-7
-         *
-         * les dates au dessus aucune conversion, juste un timestamp � mettre ?
-         * ouaip impec, grand merci :) !
-         *
-         * TEST : gITM+-10000;14,26,poney,0,tagada,55,6400000000000;5q6;1;
-         * 1000000000000;2400000000000;7
-         */
+        Guild guild = World.world.getGuild(GuildID);
+        if (guild == null)
+            return "null";
 
-        // id du poseur
-        // date quand on pose
-        StringBuilder packet = new StringBuilder();
-        boolean isFirst = true;
+        int count = countCollectorGuild(GuildID);
+        int max = guild.getNbCollectors();
+        int hireCost = 1000 + (10 * guild.getLvl());
+
+        StringBuilder packet = new StringBuilder("+");
+        packet.append(count).append(";").append(max).append(";").append(hireCost);
+
         for (java.util.Map.Entry<Integer, Collector> Collector : World.world.getCollectors().entrySet()) {
             if (Collector.getValue().getGuildId() == GuildID) {
                 GameMap map = World.world.getMap(Collector.getValue().getMap());
-                if (isFirst)
-                    packet.append("+");
-                if (!isFirst)
-                    packet.append("|");
+                packet.append("|");
 
                 Collector perco = Collector.getValue();
                 int inFight = Collector.getValue().getInFight();
@@ -203,7 +182,7 @@ public class Collector {
                 packet.append("-1"); // lastHD
                 packet.append(",");
                 packet.append(Long.toString(perco.date
-                        + World.world.getGuild(GuildID).getLvl() * 600000)); // nextHD
+                        + guild.getLvl() * 600000L)); // nextHD
                 packet.append(";");
 
                 packet.append(Integer.toString(map.getId(), 36));
@@ -239,14 +218,10 @@ public class Collector {
                     packet.append("45000;");
                     packet.append("7;");
                 }
-                isFirst = false;
             }
         }
-        if (packet.length() == 0)
-            packet = new StringBuilder("null");
 
         return packet.toString();
-
     }
 
     public static int getCollectorByGuildId(int id) {
@@ -330,6 +305,16 @@ public class Collector {
                 }
                 collector.reloadTimer();
                 ((CollectorData) DatabaseManager.get(CollectorData.class)).delete(collector);
+                // Notify guild members so their UI collector counts update
+                Guild g = World.world.getGuild(GuildID);
+                if (g != null) {
+                    for (Player gp : g.getPlayers()) {
+                        if (gp != null && gp.isOnline()) {
+                            SocketManager.GAME_SEND_gIB_PACKET(gp, g.parseCollectorToGuild());
+                            SocketManager.GAME_SEND_gITM_PACKET(gp, Collector.parseToGuild(g.getId()));
+                        }
+                    }
+                }
             }
         }
     }

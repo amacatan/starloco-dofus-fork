@@ -56,7 +56,7 @@ public class GuildData extends FunctionDAO<Guild> {
             statement.setString(1, entity.getName());
             statement.setString(2, entity.getEmblem());
             statement.setString(3, "462;0|461;0|460;0|459;0|458;0|457;0|456;0|455;0|454;0|453;0|452;0|451;0|");
-            statement.setString(4, "176;100|158;1000|124;100|");
+            statement.setString(4, "176;100|158;1000|124;0|");
             statement.setLong(5, entity.getDate());
             int affectedRows = statement.executeUpdate();
 

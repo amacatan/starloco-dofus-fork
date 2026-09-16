@@ -294,9 +294,9 @@ public class ObjectAction {
                         player.unlearnSpell(player, id0, 1, oldLevel, true, true);
                         break;
 
-                    case 8://D�sapprendre un sort � un percepteur.
+                    case 8://Desapprendre un sort a un percepteur.
                         final Guild guild = player0.getGuild();
-                        if (player0.getFight() != null || guild == null || player0.getGuildMember() == null)  {
+                        if (player0.getFight() != null || guild == null || player0.getGuildMember() == null || !player0.getGuildMember().canDo(Constant.G_BOOST)) {
                             isOk = false;
                             return;
                         }
@@ -305,38 +305,60 @@ public class ObjectAction {
 
                         if(obj != null) {
                             int spell = obj.getStats().get(Constant.STATS_FORGET_ONE_LEVEL_SPELL);
+                            if (spell == 0 && this.args != null && !this.args.isEmpty()) {
+                                switch (this.args.trim().toLowerCase()) {
+                                    case "o": spell = 1; break;
+                                    case "k": spell = 2; break;
+                                    case "p": spell = 3; break;
+                                    case "x": spell = 4; break;
+                                    default:
+                                        try {
+                                            spell = Integer.parseInt(this.args.trim());
+                                        } catch (Exception ignored) {}
+                                        break;
+                                }
+                            }
 
                             if(spell != 0) {
                                 if (spell <= 4) {
                                     int quantity = -1;
                                     switch (spell) {
                                         case 1: // Pods
-                                            quantity = guild.resetStats(158);
+                                            quantity = guild.resetStats(Constant.STATS_ADD_PODS);
                                             break;
                                         case 2: // Nb collectors
-                                            quantity = guild.getNbCollectors();
-                                            guild.setNbCollectors(0);
-                                            guild.setCapital(guild.getCapital() + quantity * 10);
-                                            quantity = -1;
+                                            quantity = guild.resetNbCollectors();
                                             break;
                                         case 3: // Prospection
-                                            quantity = guild.resetStats(176);
+                                            quantity = guild.resetStats(Constant.STATS_ADD_PROS);
                                             break;
                                         case 4: // Sagesse
-                                            quantity = guild.resetStats(124);
+                                            quantity = guild.resetStats(Constant.STATS_ADD_SAGE);
                                             break;
                                     }
                                     if (quantity != -1) {
                                         guild.setCapital(guild.getCapital() + quantity);
+                                        isOk = true;
+                                        send = true;
+                                        ((GuildData) DatabaseManager.get(GuildData.class)).update(guild);
+                                        SocketManager.GAME_SEND_gIB_PACKET(player0, guild.parseCollectorToGuild());
+                                        break;
+                                    } else {
+                                        isOk = false;
+                                        return;
                                     }
                                 } else {
-                                    guild.unBoostSpell(spell);
+                                    if (guild.unBoostSpell(spell)) {
+                                        isOk = true;
+                                        send = true;
+                                        ((GuildData) DatabaseManager.get(GuildData.class)).update(guild);
+                                        SocketManager.GAME_SEND_gIB_PACKET(player0, guild.parseCollectorToGuild());
+                                        break;
+                                    } else {
+                                        isOk = false;
+                                        return;
+                                    }
                                 }
-                                isOk = true;
-                                send = true;
-                                ((GuildData) DatabaseManager.get(GuildData.class)).update(guild);
-                                SocketManager.GAME_SEND_gIB_PACKET(player0, guild.parseCollectorToGuild());
-                                break;
                             }
                         }
                         isOk = false;

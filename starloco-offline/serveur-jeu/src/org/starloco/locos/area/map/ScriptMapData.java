@@ -1,5 +1,7 @@
 package org.starloco.locos.area.map;
 
+import org.starloco.locos.kernel.Constant;
+
 import org.classdump.luna.Table;
 import org.classdump.luna.runtime.LuaFunction;
 import org.starloco.locos.anims.Animation;
@@ -177,6 +179,18 @@ public class ScriptMapData extends MapData {
     @Override
     public boolean hasFightEndForType(int type) {
         return onFightFunctionByType(type, "onFightEnd").isPresent();
+    }
+
+    @Override
+    public boolean isDungeon() {
+        if (hasFightEndForType(Constant.FIGHT_TYPE_PVM)) {
+            return true;
+        }
+        if (scriptVal != null) {
+            Object d = scriptVal.rawget("isDungeon");
+            if (d instanceof Boolean && (Boolean) d) return true;
+        }
+        return false;
     }
 
     public Table scripted() {

@@ -22,7 +22,12 @@ public class CollectorData extends FunctionDAO<Collector> {
         try {
             getData("SELECT * FROM " + getTableName() + ";", result -> {
                 while (result.next()) {
-                    GameMap map = World.world.getMap(result.getShort("mapid"));
+                    short mapId = result.getShort("mapid");
+                    if (!World.world.getMapData(mapId).isPresent()) {
+                        logger.error("Collector " + result.getInt("guid") + " skipped: map #" + mapId + " does not exist!");
+                        continue;
+                    }
+                    GameMap map = World.world.getMap(mapId);
                     if (map != null) {
                         int poseur_id = result.getInt("poseur_id");
                         Player player = World.world.getPlayer(poseur_id);
@@ -74,14 +79,6 @@ public class CollectorData extends FunctionDAO<Collector> {
 
             if (affectedRows == 0) {
                 ok = false;
-            } else {
-                try (ResultSet generatedKeys = p.getGeneratedKeys()) {
-                    if (generatedKeys.next()) {
-                        entity.setId(generatedKeys.getInt(1));
-                    } else {
-                        ok = false;
-                    }
-                }
             }
         } catch (SQLException e) {
             super.sendError(e);

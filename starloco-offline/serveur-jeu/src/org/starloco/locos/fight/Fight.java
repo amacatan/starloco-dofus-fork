@@ -24,6 +24,7 @@ import org.starloco.locos.database.data.game.CollectorData;
 import org.starloco.locos.database.data.game.ExperienceTables;
 import org.starloco.locos.database.data.game.PrismData;
 import org.starloco.locos.database.data.login.PlayerData;
+import org.starloco.locos.database.data.login.ObjectData;
 import org.starloco.locos.dynamic.FormuleOfficiel;
 import org.starloco.locos.entity.Collector;
 import org.starloco.locos.entity.Prism;
@@ -1292,8 +1293,8 @@ public class Fight {
             String[] chalInfo;
 
             int challengeID, challengeXP, challengeDP, bonusGroupe;
-            /* FIXME: Check if in dungeon */
-            int challengeNumber = false || SoulStone.isInArenaMap(this.getMapOld().getId()) ? 2 : 1;
+            boolean isDungeon = hasBoss > 0 || (this.getMapOld() != null && this.getMapOld().hasDungeon());
+            int challengeNumber = (isDungeon || SoulStone.isInArenaMap(this.getMapOld().getId())) ? 2 : 1;
 
             for (String chalInfos : World.world.getRandomChallenge(challengeNumber, challenges)) {
                 chalInfo = chalInfos.split(",");
@@ -5533,13 +5534,18 @@ public class Fight {
                 collector.setKamas(collector.getKamas() + winkamas);
                 Guild guild = World.world.getGuild(collector.getGuildId());
 
-                packet.append("5;").append(collector.getId()).append(";").append(collector.getFullName()).append(";").append(World.world.getGuild(collector.getGuildId()).getLvl()).append(";0;");
+                packet.append("5;");
+                packet.append(collector.getId()).append(";");
+                packet.append(collector.getFullName()).append(";");
                 packet.append(guild.getLvl()).append(";");
+                packet.append("6000;"); // GFX Percepteur
+                packet.append("0;"); // bDead (0 = vivant)
+                packet.append(World.world.getExperiences().guilds.minXpAt(guild.getLvl())).append(";");
                 packet.append(guild.getXp()).append(";");
                 packet.append(World.world.getGuildXpMax(guild.getLvl())).append(";");
-                packet.append(";");// XpGagner
-                packet.append(winxp).append(";");// XpGuilde
-                packet.append(";");// Monture
+                packet.append(";"); // XpGagner (personnage)
+                packet.append(winxp).append(";"); // XpGuilde
+                packet.append(";"); // Monture
 
                 String drops = "";
                 ArrayList<Drop> temporary = new ArrayList<>(dropsPlayers);
@@ -5641,9 +5647,13 @@ public class Fight {
 
                         GameObject newObj = World.world.getObjTemplate(objectTemplate.getId()).createNewItemWithoutDuplication(collector.getOjects().values(), entry.getValue(), false);
 
-                        if (newObj != null && collector.getOjects().get(newObj.getGuid()) == null) {
-                            if (collector.addObjet(newObj))
-                                World.world.addGameObject(newObj);
+                        if (newObj != null) {
+                            if (collector.getOjects().get(newObj.getGuid()) == null) {
+                                if (collector.addObjet(newObj))
+                                    World.world.addGameObject(newObj);
+                            } else {
+                                DatabaseManager.get(ObjectData.class).update(newObj);
+                            }
                         }
                     }
                 }

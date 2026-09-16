@@ -128,6 +128,10 @@ public abstract class MapData implements CellsDataProvider {
     public abstract boolean hasFightEndForType(int type);
     public abstract void onFightEnd(Fight f, Player p, List<Fighter> winTeam, List<Fighter> looseTeam);
 
+    public boolean isDungeon() {
+        return false;
+    }
+
     public int cellCount() {
         return width * height + (width-1) * (height-1);
     }

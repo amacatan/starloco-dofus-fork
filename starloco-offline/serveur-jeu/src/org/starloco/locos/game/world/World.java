@@ -390,9 +390,6 @@ public class World implements Scripted<SWorld> {
         DatabaseManager.get(MountParkData.class).loadFully();
         logger.debug("The dynamics parks of the mounts were loaded successfully.");
 
-        DatabaseManager.get(CollectorData.class).loadFully();
-        logger.debug("The collectors were loaded successfully.");
-
         DatabaseManager.get(BaseHouseData.class).loadFully();
         logger.debug("The statics houses were loaded successfully.");
         DatabaseManager.get(HouseData.class).loadFully();
@@ -435,6 +432,9 @@ public class World implements Scripted<SWorld> {
 
         // Script engine
         World.world.loadScripts();
+
+        DatabaseManager.get(CollectorData.class).loadFully();
+        logger.debug("The collectors were loaded successfully.");
 
         World.world.loadExtraMonster();
         logger.debug("The adding of extra-monsters on the maps were done successfully.");

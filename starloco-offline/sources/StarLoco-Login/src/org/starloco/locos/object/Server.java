@@ -37,9 +37,14 @@ public class Server {
     public static String getHostList() {
         StringBuilder sb = new StringBuilder("AH");
         Server.servers.values().stream()
-                .filter(server -> server != null && server.getClient() != null && server.getState() == 1)
-                .forEach(server -> sb.append(sb.length() > 2 ? "|" : "")
-                        .append(server.getId()).append(";1;110;1"));
+                .filter(server -> server != null)
+                .forEach(server -> {
+                    boolean online = server.getClient() != null && server.getState() == 1;
+                    int state = online ? 1 : 0;
+                    int canLog = online ? 1 : 0;
+                    sb.append(sb.length() > 2 ? "|" : "")
+                            .append(server.getId()).append(";").append(state).append(";110;").append(canLog);
+                });
         return sb.toString();
     }
 

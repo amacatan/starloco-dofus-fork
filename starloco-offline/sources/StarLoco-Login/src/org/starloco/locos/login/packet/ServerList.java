@@ -26,15 +26,18 @@ class ServerList {
         StringBuilder sb = new StringBuilder(account.getSubscribeRemaining() + "");
 
         for (Server server : Server.servers.values()) {
-            if (server == null || server.getClient() == null || server.getState() != 1) {
+            if (server == null) {
                 continue;
             }
             int characterCount = characterNumber(account, server.getId());
-            // The Retro client only exposes a server in this packet when the count is
-            // positive. Advertise one slot for an empty account so it can select the
-            // server and create its first character; the game server sends the real list.
-            int advertisedCount = Math.max(1, characterCount);
-            sb.append("|").append(server.getId()).append(",").append(advertisedCount);
+            if (characterCount > 0) {
+                sb.append("|").append(server.getId()).append(",").append(characterCount);
+            } else if (server.getClient() != null && server.getState() == 1) {
+                // The Retro client only exposes a server in this packet when the count is
+                // positive. Advertise one slot for an empty account so it can select the
+                // server and create its first character; the game server sends the real list.
+                sb.append("|").append(server.getId()).append(",1");
+            }
         }
 
         Console.instance.write("[" + account.getClient().getIoSession().getId() + "] Sending list of server of account name " + account.getName() + ". List : '" + sb.toString() + "'");

@@ -70,8 +70,8 @@ public final class VersionAndServerListChecks {
 
         new Server(603, "disconnected", 0);
 
-        check("AH601;1;110;1".equals(Server.getHostList()),
-                "AH must expose only game servers that are connected and online");
+        check("AH601;1;110;1|602;0;110;0|603;0;110;0".equals(Server.getHostList()),
+                "AH must expose all servers with their real availability status");
         String publicServerDescription = BasicAdministration.publicServerDescription(online);
         check("- id:601".equals(publicServerDescription),
                 "Administration diagnostics must identify a server without exposing its shared key");

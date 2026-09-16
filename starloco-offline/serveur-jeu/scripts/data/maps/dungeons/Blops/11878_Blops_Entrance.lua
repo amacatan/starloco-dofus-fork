@@ -14,6 +14,10 @@ map.positions = "ekeyezeNe0fcfdfr|bIbWbXb_cmcAcBcP"
 map.capabilities = 46
 map.npcs = {
     [1034] = {85, 3}
+
 }
 
+map.onMovementEnd = {
+    [379] = moveEndTeleport(4416, 369),
+}
 

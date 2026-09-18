@@ -328,3 +328,12 @@ world.worldpub.pub.15: "CONSEJO: desactiva el canal 'verde' para evitar errores 
 world.worldpub.pub.16: "AYUDA: use el comando '.admin' para obtener ayuda de nuestros moderadores"
 world.worldpub.pub.17: "MODE: ¡Disfruta de diferentes modos PvP como DUBG y SURVIVAL desde el nivel 50 para ganar un mejor equipo!"
 world.worldpub.pub.18: "STREAM: ¿Eres un streamer? ¿O quieres hacerlo para nuestro servidor? ¡Contacta con un administrador para disfrutar de un juego de bonificación!"
+
+command.commandplayer.vie.error: "Seus pontos de vida já estão no máximo."
+command.commandplayer.vie.success: "Seus pontos de vida foram restaurados."
+command.commandplayer.scroll.novip: "Este comando é reservado para jogadores VIP! Use .vip para mais informações."
+command.commandplayer.scroll.cant: "Você não pode executar este comando agora."
+command.commandplayer.scroll.nokamas: "Você precisa de <b>#1 Kamas</b> para aumentar seus atributos para 101."
+command.commandplayer.scroll.success: "Todos os seus atributos básicos foram definidos para <b>101</b>!"
+command.commandplayer.vip.active: "<b>Status VIP:</b> <font color='#00FF00'>Ativo</font>"
+command.commandplayer.vip.inactive: "<b>Status VIP:</b> <font color='#FF0000'>Inativo</font>\nAtive VIP no banco de dados (world_accounts.vip = 1) ou através de assinatura."

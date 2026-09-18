@@ -219,3 +219,12 @@ quest.quest.applyquest: "Votre niveau est insuffisant pour apprendre la quête."
 
 world.world.maried.pietre.ask.accept: "Acceptez-vous d'épouser votre partenaire ?"
 world.world.maried.pietre.ask.ok: "Je déclare messieurs et madame unis par les liens sacrés du mariage."
+
+command.commandplayer.vie.error: "Vos points de vie sont déjà au maximum."
+command.commandplayer.vie.success: "Vos points de vie ont été restaurés."
+command.commandplayer.scroll.novip: "Cette commande est réservée aux joueurs VIP ! Utilisez .vip pour plus d'informations."
+command.commandplayer.scroll.cant: "Vous ne pouvez pas exécuter cette commande actuellement."
+command.commandplayer.scroll.nokamas: "Vous avez besoin de <b>#1 Kamas</b> pour monter vos caractéristiques à 101."
+command.commandplayer.scroll.success: "Toutes vos caractéristiques de base ont été fixées à <b>101</b> !"
+command.commandplayer.vip.active: "<b>Statut VIP :</b> <font color='#00FF00'>Actif</font>"
+command.commandplayer.vip.inactive: "<b>Statut VIP :</b> <font color='#FF0000'>Inactif</font>\nActivez le VIP dans la base de données (world_accounts.vip = 1) ou via un abonnement."

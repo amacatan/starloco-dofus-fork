@@ -5900,6 +5900,10 @@ public class Player implements Scripted<SPlayer>, Actor {
         return curMap.data.noCanal;
     }
 
+    public boolean isVip() {
+        return (this.getAccount() != null && this.getAccount().isVip()) || this.getGroup() != null;
+    }
+
     public boolean cantTP() {
         return this.isInPrison() || curMap.data.noTp || EventManager.isInEvent(this);
     }

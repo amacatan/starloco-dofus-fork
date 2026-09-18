@@ -35,6 +35,9 @@ public class AccountData extends FunctionDAO<Account> {
             return getData("SELECT * FROM " + getTableName() + " WHERE guid = " + id, result -> {
                 if(!result.next()) return null;
                 Account acc = new Account(result.getInt("guid"), result.getString("account").toLowerCase(), result.getString("pseudo"), result.getString("reponse"), (result.getInt("banned") == 1), result.getString("lastIP"), result.getString("lastConnectionDate"), result.getString("friends"), result.getString("enemy"), result.getInt("points"), result.getLong("subscribe"), result.getLong("muteTime"), result.getString("mutePseudo"), result.getString("lastVoteIP"), result.getString("heurevote"));
+                try {
+                    acc.setVip(result.getInt("vip"));
+                } catch(Exception ignored) {}
                 World.world.addAccount(acc);
 
                 // Load account specific data

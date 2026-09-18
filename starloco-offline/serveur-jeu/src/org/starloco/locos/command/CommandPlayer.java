@@ -39,26 +39,29 @@ public class CommandPlayer {
                 return commandDeblo(player, msg);
             } else if (command(msg, "infos")) {
                 return commandInfos(player, msg);
-            }else if (command(msg, "master") || command(msg, "maitre") || command(msg, "maître") || command(msg, "maestro")) {
+            } else if (command(msg, "master") || command(msg, "maitre") || command(msg, "maître") || command(msg, "maestro")) {
                 return commandMaster(player, msg);
             } else if (command(msg, "pass")) {
                 return commandPass(player, msg);
-            } else  if (command(msg, "interval")) {
+            } else if (command(msg, "interval")) {
                 return commandInterval(player, msg);
-            } else if(command(msg, "start") || command(msg, "astrub")) {
+            } else if (command(msg, "start") || command(msg, "astrub")) {
                 return commandAstrub(player, msg);
-            } else if(command(msg, "walkfast")) {
+            } else if (command(msg, "walkfast")) {
                 player.walkFast = !player.walkFast;
                 return true;
-            } else  if(command(msg, "vip")) {
-                player.sendMessage(player.getLang().trans("command.commandplayer.vip"));
-                return true;
-            } else if(command(msg, "savepos")) {
+            } else if (command(msg, "101") || command(msg, "scroll") || command(msg, "scrolls") || command(msg, "scrools")) {
+                return commandScroll101(player, msg);
+            } else if (command(msg, "vie") || command(msg, "life")) {
+                return commandVie(player, msg);
+            } else if (command(msg, "vip")) {
+                return commandVip(player, msg);
+            } else if (command(msg, "savepos")) {
                 return commandStart(player, msg);
-            } else  if (command(msg, "transfert")) {
+            } else if (command(msg, "transfert") || command(msg, "transfer")) {
                 return commandTransfert(player, msg);
-            }else if (command(msg, "banque")) {
-                if (!player.getAccount().isSubscribeWithoutCondition()) {
+            } else if (command(msg, "banque") || command(msg, "bank")) {
+                if (!player.isVip()) {
                     player.sendMessage(player.getLang().trans("command.commandplayer.life.nosubscribe"));
                     return true;
                 }
@@ -66,7 +69,7 @@ public class CommandPlayer {
                     return true;
                 player.openBank();
                 return true;
-            }else if (command(msg, "groupe")) {
+            } else if (command(msg, "groupe") || command(msg, "group")) {
                 if (player.isInPrison() || player.getFight() != null)
                     return true;
                 final byte[] count = {0};
@@ -311,9 +314,9 @@ public class CommandPlayer {
 
     private static boolean commandAstrub(Player player, String msg) {
         int mapId = player.getCurMap().getId();
-        if (player.isInPrison() || player.cantTP() || player.getFight() != null || Config.gameServerId == 22)
+        if (player.isInPrison() || player.cantTP() || player.getFight() != null)
             return true;
-        player.teleport((short) 952, 250);
+        player.teleport((short) 7411, 385);
 
         final Party party = player.getParty();
         if(party != null && party.getMaster() != null && party.getMaster().getName().equals(player.getName())) {
@@ -321,10 +324,68 @@ public class CommandPlayer {
                 if (slave.getCurMap().getId() == mapId) {
                     if (!player.isInPrison() && !player.cantTP())
                         if (player.getFight() == null)
-                            slave.teleport((short) 952, 250);
+                            slave.teleport((short) 7411, 385);
                 }
             });
         }
+        return true;
+    }
+
+    private static boolean commandVie(Player player, String msg) {
+        if(player.getCurPdv() == player.getMaxPdv()){
+            player.sendMessage(player.getLang().trans("command.commandplayer.vie.error"));
+            return true;
+        }
+        player.setPdv(player.getMaxPdv());
+        if (player.isOnline())
+            SocketManager.GAME_SEND_STATS_PACKET(player);
+        player.sendMessage(player.getLang().trans("command.commandplayer.vie.success"));
+        return true;
+    }
+
+    private static boolean commandScroll101(Player player, String msg) {
+        if (!player.isVip()) {
+            player.sendMessage(player.getLang().trans("command.commandplayer.scroll.novip"));
+            return true;
+        }
+        if (player.isInPrison() || player.getFight() != null) {
+            player.sendMessage(player.getLang().trans("command.commandplayer.scroll.cant"));
+            return true;
+        }
+        long kamaCost = 1000000L;
+        if (player.getKamas() < kamaCost) {
+            player.sendMessage(player.getLang().trans("command.commandplayer.scroll.nokamas", kamaCost));
+            return true;
+        }
+
+        // 1. Kamas abziehen
+        player.setKamas(player.getKamas() - kamaCost);
+
+        // 2. Investierte Kapitalpunkte zurückerstatten & Stats auf 0 setzen
+        player.resetStats(false);
+
+        // Direkt die Basis-Stats auf 101 setzen
+        player.getStats().addOneStat(Constant.STATS_ADD_FORC, 101); // Stärke
+        player.getStats().addOneStat(Constant.STATS_ADD_AGIL, 101); // Beweglichkeit
+        player.getStats().addOneStat(Constant.STATS_ADD_CHAN, 101); // Glück
+        player.getStats().addOneStat(Constant.STATS_ADD_SAGE, 101); // Weisheit
+        player.getStats().addOneStat(Constant.STATS_ADD_VITA, 101); // Vitalität
+        player.getStats().addOneStat(Constant.STATS_ADD_INTE, 101); // Intelligenz
+
+        // Stats neu an Client senden
+        SocketManager.GAME_SEND_STATS_PACKET(player);
+
+        player.sendMessage(player.getLang().trans("command.commandplayer.scroll.success"));
+        return true;
+    }
+
+    private static boolean commandVip(Player player, String msg) {
+        if (player.isVip()) {
+            player.sendMessage(player.getLang().trans("command.commandplayer.vip.active"));
+        } else {
+            player.sendMessage(player.getLang().trans("command.commandplayer.vip.inactive"));
+        }
+        player.sendMessage(player.getLang().trans("command.commandplayer.vip"));
         return true;
     }
 
@@ -498,7 +559,6 @@ public class CommandPlayer {
         player.sendMessage(message);
         return true;
     }
-
     private static boolean command(String msg, String command) {
         return msg.length() > command.length() && msg.substring(1, command.length() + 1).equalsIgnoreCase(command);
     }

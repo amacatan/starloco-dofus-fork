@@ -328,3 +328,12 @@ world.worldpub.pub.15: "TIP: Disable the 'green' channel to avoid bugs in combat
 world.worldpub.pub.16: "HELP: Use the '.admin' command to get help from our moderators."
 world.worldpub.pub.17: "MODE: Enjoy different PvP modes like DUBG and SURVIVAL from level 50 to win better equipment!"
 world.worldpub.pub.18: "STREAM: You are streamer? Or you want to do it for our server? Contact an administrator to enjoy a bonus game!"
+
+command.commandplayer.vie.error: "Your health points are already at maximum."
+command.commandplayer.vie.success: "Your health points have been restored."
+command.commandplayer.scroll.novip: "This command is reserved for VIP players! Use .vip for more information."
+command.commandplayer.scroll.cant: "You cannot execute this command right now."
+command.commandplayer.scroll.nokamas: "You need <b>#1 Kamas</b> to scroll your stats to 101."
+command.commandplayer.scroll.success: "All your base stats have been successfully set to <b>101</b>!"
+command.commandplayer.vip.active: "<b>VIP Status:</b> <font color='#00FF00'>Active</font>"
+command.commandplayer.vip.inactive: "<b>VIP Status:</b> <font color='#FF0000'>Inactive</font>\nActivate VIP via database (world_accounts.vip = 1) or subscription."

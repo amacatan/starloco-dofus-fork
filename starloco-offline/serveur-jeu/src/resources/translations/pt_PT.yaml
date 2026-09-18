@@ -218,3 +218,12 @@ quest.quest.applyquest: "Tu nivel es insuficiente para aprender la misión."
 
 world.world.maried.pietre.ask.accept: "¿Estás de acuerdo en casarte con tu pareja?"
 world.world.maried.pietre.ask.ok: "Declaro señores y señoras unidos por los lazos sagrados del matrimonio."
+
+command.commandplayer.vie.error: "Seus pontos de vida já estão no máximo."
+command.commandplayer.vie.success: "Seus pontos de vida foram restaurados."
+command.commandplayer.scroll.novip: "Este comando é reservado para jogadores VIP! Use .vip para mais informações."
+command.commandplayer.scroll.cant: "Você não pode executar este comando agora."
+command.commandplayer.scroll.nokamas: "Você precisa de <b>#1 Kamas</b> para aumentar seus atributos para 101."
+command.commandplayer.scroll.success: "Todos os seus atributos básicos foram definidos para <b>101</b>!"
+command.commandplayer.vip.active: "<b>Status VIP:</b> <font color='#00FF00'>Ativo</font>"
+command.commandplayer.vip.inactive: "<b>Status VIP:</b> <font color='#FF0000'>Inativo</font>\nAtive VIP no banco de dados (world_accounts.vip = 1) ou através de assinatura."

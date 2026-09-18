@@ -40,6 +40,7 @@ public class Account {
     private String mutePseudo = "";
     private boolean banned = false;
     private long subscriber = 1;
+    private int vip = 0;
     private long bankKamas = 0;
     private Player currentPlayer;
     private GameClient gameClient;
@@ -286,6 +287,18 @@ public class Account {
     public boolean isSubscribeWithoutCondition() {
         long remaining = this.subscriber - System.currentTimeMillis();
         return remaining > 0L;
+    }
+
+    public int getVip() {
+        return vip;
+    }
+
+    public void setVip(int vip) {
+        this.vip = vip;
+    }
+
+    public boolean isVip() {
+        return this.vip > 0 || isSubscribeWithoutCondition();
     }
 
     public boolean createPlayer(String name, int sexe, int classe, int color1, int color2, int color3) {

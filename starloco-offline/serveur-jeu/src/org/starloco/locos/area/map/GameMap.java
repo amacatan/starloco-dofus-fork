@@ -180,6 +180,12 @@ public class GameMap {
         this.data.getNPCs().forEach((k, v) -> addNpc(k, v.first, v.second));
         this.data.getStaticGroups().forEach(this::addStaticGroup);
 
+        this.data.animations.forEach((cellId, anim) -> {
+            org.starloco.locos.anims.KeyFrame defaultFrame = anim.frames.get(anim.defaultState);
+            if(defaultFrame != null && !defaultFrame.getCellOverrides().isEmpty()) {
+                cellsData.applyOverrides(cellId, defaultFrame.getCellOverrides());
+            }
+        });
 
         this.refreshInteractiveObjects();
         this.refreshSpawns();

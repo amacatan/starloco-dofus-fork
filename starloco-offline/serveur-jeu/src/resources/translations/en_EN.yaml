@@ -218,3 +218,12 @@ quest.quest.applyquest: "Your level is insufficient to learn the quest."
 
 world.world.maried.pietre.ask.accept: "Do you agree to marry your partner?"
 world.world.maried.pietre.ask.ok: "I declare gentlemen and madam united by the sacred bonds of marriage."
+
+command.commandplayer.vie.error: "Your health points are already at maximum."
+command.commandplayer.vie.success: "Your health points have been restored."
+command.commandplayer.scroll.novip: "This command is reserved for VIP players! Use .vip for more information."
+command.commandplayer.scroll.cant: "You cannot execute this command right now."
+command.commandplayer.scroll.nokamas: "You need <b>#1 Kamas</b> to scroll your stats to 101."
+command.commandplayer.scroll.success: "All your base stats have been successfully set to <b>101</b>!"
+command.commandplayer.vip.active: "<b>VIP Status:</b> <font color='#00FF00'>Active</font>"
+command.commandplayer.vip.inactive: "<b>VIP Status:</b> <font color='#FF0000'>Inactive</font>\nActivate VIP via database (world_accounts.vip = 1) or subscription."

@@ -56,4 +56,36 @@ map.onMovementEnd = {
 	[456] = moveEndTeleport(1174, 34),
 }
 
+-- Support opening door
+local doorCellID = 295
+local slabCells = {437}
+local requiredPlayers = 1
+
+local openDoorFn = openAndCloseAfterMillis(1186, doorCellID, 30000)
+
+---@param md MapDef
+---@param m Map
+local checkOpenDoor = function(md, m, p)
+	local count = 0
+
+	for _, cID in ipairs(slabCells) do
+		if #(m:cellPlayers(cID)) > 0 or (p and p:cellId() == cID) then
+			count = count + 1
+		end
+	end
+
+	if count >= requiredPlayers then
+		openDoorFn(md, m, p)
+	end
+end
+
+for _, cID in ipairs(slabCells) do
+	map.onMovementEnd[cID] = checkOpenDoor
+end
+
+map.animations = {
+	[doorCellID] = AnimatedObjects.SlidingRock,
+}
+
+
 

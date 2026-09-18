@@ -4287,6 +4287,7 @@ public class GameClient {
                 this.player.setGhost();
                 break;
             case 'I':
+            case 'i':
                 getExtraInformations();
                 break;
             case 'K':
@@ -4309,7 +4310,7 @@ public class GameClient {
                     this.player.getFight().playerPass(this.player);
                 break;
             default:
-                if(c == 1030) {
+                if(c == 1030 || c == 'i' || c == 'I') {
                     getExtraInformations();
                 }
                 break;

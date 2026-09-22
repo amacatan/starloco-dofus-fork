@@ -5203,6 +5203,7 @@ public class GameClient {
                         }
                     } else {
                         this.player.getFight().onGK(this.player);
+                        removeAction(GA);
                         return;
                     }
                 } else {

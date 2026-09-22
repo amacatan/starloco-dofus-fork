@@ -3210,6 +3210,8 @@ public class Fight {
     }
 
     public void onFighterDie(Fighter target, Fighter caster) {
+        if (target == null || this.deadList.contains(target) || (target.hasLeft() && target.isDead()))
+            return;
         Runnable runnable = () -> {
             final Fighter current = this.getFighterByGameOrder();
 
@@ -3446,11 +3448,7 @@ public class Fight {
             this.verifIfTeamAllDead();
         };
 
-        if (target.getId() != caster.getId() || target.hasLeft() && caster.hasLeft()) {
-            runnable.run();
-        } else {
-            TimerWaiter.addNext(runnable, 3000);
-        }
+        runnable.run();
     }
 
     public ArrayList<Fighter> getFighters(int teams) {// Entre 0 et 7, binaire([spec][t2][t1]).

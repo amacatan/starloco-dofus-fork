@@ -81,16 +81,20 @@ class ExchangePacketHandler {
                                 break;
                             case 'K': //Kick
                                 id = Integer.parseInt(packet.substring(2));
-                                DatabaseManager.get(PlayerData.class).updateLogged(id, 0);
                                 DatabaseManager.get(AccountData.class).setLogged(id, 0);
                                 account = World.world.ensureAccountLoaded(id);
 
                                 if (account != null) {
+                                    for (org.starloco.locos.client.Player p : account.getPlayers().values()) {
+                                        DatabaseManager.get(PlayerData.class).updateLogged(p.getId(), 0);
+                                    }
                                     GameClient client;
                                     if ((client = account.getGameClient()) != null) {
                                         client.disconnect();
                                         client.kick();
                                     }
+                                } else {
+                                    DatabaseManager.get(PlayerData.class).updateLogged(id, 0);
                                 }
                                 break;
                         }

@@ -503,11 +503,7 @@ public class Account {
             DatabaseManager.get(MountData.class).update(player.getMount());
         if (player.getFight() != null) {
             if (player.getFight().onPlayerDisconnection(player, false)) {
-                // The disconnected fighter is still retained in the Game server
-                // until reconnection, abandonment or the end of the fight. Keep
-                // this database flag set so out-of-process administration cannot
-                // edit a cached player that a later world save would overwrite.
-                DatabaseManager.get(PlayerData.class).updateLogged(player.getId(), 1);
+                DatabaseManager.get(PlayerData.class).updateLogged(player.getId(), 0);
                 DatabaseManager.get(PlayerData.class).update(player);
                 return;
             }

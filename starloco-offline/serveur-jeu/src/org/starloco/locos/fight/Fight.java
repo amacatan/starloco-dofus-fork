@@ -1810,6 +1810,20 @@ public class Fight {
         if (getState() >= Constant.FIGHT_STATE_FINISHED)
             return;
 
+        if (this.orderPlaying != null) {
+            for (int i = 0; i < this.orderPlaying.size(); i++) {
+                Fighter f = this.orderPlaying.get(i);
+                if (f.isDead() && f.isInvocation()) {
+                    if (this.curPlayer >= i && this.curPlayer > 0)
+                        this.curPlayer--;
+                    this.orderPlaying.remove(i);
+                    if (this.team0.containsKey(f.getId())) this.team0.remove(f.getId());
+                    else if (this.team1.containsKey(f.getId())) this.team1.remove(f.getId());
+                    i--;
+                }
+            }
+        }
+
         setCurPlayer(getCurPlayer() + 1);
         setCurAction("");
 
@@ -1949,7 +1963,7 @@ public class Fight {
                 return;
             if (this.turn != null)
                 this.turn.stop();
-            if (current.hasLeft() || current.isDead()) {
+            if (current.hasLeft() || (current.isDead() && !current.canPlay())) {
                 this.startTurn();
                 return;
             }
@@ -2781,6 +2795,14 @@ public class Fight {
 
         this.verifIfTeamAllDead();
 
+        if (fighter.isDead()) {
+            TimerWaiter.addNext(() -> {
+                this.setCurAction("");
+                this.endTurn(false, fighter);
+            }, 1200);
+            return 0;
+        }
+
         TimerWaiter.addNext(() -> {
             this.setCurAction("");
             if (fighter.getPlayer() != null) {
@@ -3340,43 +3362,24 @@ public class Fight {
                 try {
                     if (target.isInvocation() && !target.isStatic()) {
                         target.getInvocator().modNbrInvoc(-1);
-                        // Il ne peut plus jouer, et est mort on revient au joueur
-                        // pr�cedent pour que le startTurn passe au suivant
 
-                        if (current.getId() == target.getId()) {
-                            if (!target.canPlay()) {
-                                this.setCurAction("");
-                                this.setCurPlayer(getCurPlayer() - 1);
-                                this.endTurn(false, current);
-                            }
-                            // Il peut jouer, et est mort alors on passe son tour
-                            // pour que l'autre joue, puis on le supprime de l'index
-                            // sans probl�mes
-                            else if (target.canPlay()) {
-                                this.setCurAction("");
-                                this.endTurn(false, current);
+                        if (current.getId() != target.getId()) {
+                            if (this.getOrderPlaying() != null && !this.getOrderPlaying().isEmpty()) {
+                                int index = this.getOrderPlaying().indexOf(target);
+                                if (index != -1) {
+                                    if (getCurPlayer() > index && getCurPlayer() > 0)
+                                        this.setCurPlayer(getCurPlayer() - 1);
+                                    this.getOrderPlaying().remove(index);
+                                }
+
+                                if (this.getCurPlayer() < 0)
+                                    return;
+                                if (this.team0.containsKey(target.getId()))
+                                    this.team0.remove(target.getId());
+                                else if (this.team1.containsKey(target.getId()))
+                                    this.team1.remove(target.getId());
                             }
                         }
-
-                        if (this.getOrderPlaying() != null && !this.getOrderPlaying().isEmpty()) {
-                            int index = this.getOrderPlaying().indexOf(target);
-                            // Si le joueur courant a un index plus �lev�, on le
-                            // diminue pour �viter le outOfBound
-                            if (index != -1) {
-                                if (getCurPlayer() > index && getCurPlayer() > 0)
-                                    this.setCurPlayer(getCurPlayer() - 1);
-                                this.getOrderPlaying().remove(index);
-                            }
-
-                            if (this.getCurPlayer() < 0)
-                                return;
-                            if (this.team0.containsKey(target.getId()))
-                                this.team0.remove(target.getId());
-                            else if (this.team1.containsKey(target.getId()))
-                                this.team1.remove(target.getId());
-                            //SocketManager.GAME_SEND_GA_PACKET_TO_FIGHT(this, 7, 999, target.getId() + "", this.getGTL());
-                        }
-                        this.setCurAction("");
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -3398,19 +3401,8 @@ public class Fight {
                 this.traps.remove(trap);
             });
 
-            if (caster != null && target.getId() == caster.getId()) {
-                SocketManager.GAME_SEND_FIGHT_PLAYER_DIE_TO_FIGHT(this, 7, target.getId());
-                SocketManager.GAME_SEND_GTL_PACKET_TO_FIGHT(this, 7);
-
-                if (target.canPlay() && current.getId() == target.getId() && !current.hasLeft())
-                    this.endTurn(false, current);
-            } else {
-                SocketManager.GAME_SEND_FIGHT_PLAYER_DIE_TO_FIGHT(this, 7, target.getId());
-                SocketManager.GAME_SEND_GTL_PACKET_TO_FIGHT(this, 7);
-
-                if (target.canPlay() && current.getId() == target.getId() && !current.hasLeft())
-                    this.endTurn(false, current);
-            }
+            SocketManager.GAME_SEND_FIGHT_PLAYER_DIE_TO_FIGHT(this, 7, target.getId());
+            SocketManager.GAME_SEND_GTL_PACKET_TO_FIGHT(this, 7);
 
             if (target instanceof CollectorFighter) {// Le percepteur viens de mourrir on met fin au cbt
                 this.getFighters(target.getTeam2()).stream().filter(f -> !f.isDead()).forEach(f -> {

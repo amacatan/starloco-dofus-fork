@@ -157,6 +157,8 @@ game.auction.auctionmanager.stop.none: "No buyer for this item."
 game.auction.auctionmanager.stop.next: "Let's move on to the next one!"
 
 jobaction.disable.walkfast: "Disable .walfast 'to avoid the penalty of an additional 10 seconds"
+jobaction.maging.tool.required: "You must equip the appropriate tool for this profession."
+jobaction.maging.level.low: "Your profession level (#1) is too low to mage a level #2 item. (Max item level: #3)"
 
 event.findme.win: "Congratulations to the one who found it!"
 event.findme.find: "Find me, I'm in #1!"

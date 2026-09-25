@@ -36,8 +36,8 @@ local function talkMapTreechnidMorphRoom(p, answer)
     if answer == 0 then
         p:ask(3276, {2946})
     elseif answer == 2946 then
-        --TODO: Morph
         p:teleport(8716, 184)
+        p:setFullMorph(11)
         p:endDialog()
     end
 end
@@ -46,7 +46,7 @@ local function talkMapTreechnidUnmorphRoom(p, answer)
     if answer == 0 then
         p:ask(3280, {2933})
     elseif answer == 2933 then
-        --TODO: Unmorph
+        p:unsetFullMorph()
         p:teleport(10154, 335)
         p:endDialog()
     end
@@ -102,8 +102,8 @@ local function talkMapSoftOakMorphRoom(p, answer)
     if answer == 0 then
         p:ask(3276, {2946})
     elseif answer == 2946 then
-        --TODO: Morph
         p:teleport(9121, 69)
+        p:setFullMorph(11)
         p:endDialog()
     end
 end
@@ -112,7 +112,7 @@ local function talkMapSoftOakUnmorphRoom(p, answer)
     if answer == 0 then
         p:ask(3280, {2933})
     elseif answer == 2933 then
-        --TODO: Unmorph
+        p:unsetFullMorph()
         p:teleport(9125, 452)
         p:endDialog()
     end
@@ -122,6 +122,7 @@ local function talkMapAncestralTreechnidExit(p, answer)
     if answer == 0 then
         p:ask(3275, {2929})
     elseif answer == 2929 then
+        if p:isFullMorph() then p:unsetFullMorph() end
         p:teleport(9127, 236)
         p:endDialog()
     end
@@ -131,6 +132,7 @@ local function talkMapSoftOakExit(p, answer)
     if answer == 0 then
         p:ask(3278, {2932})
     elseif answer == 2932 then
+        if p:isFullMorph() then p:unsetFullMorph() end
         p:teleport(9127, 236)
         p:endDialog()
     end

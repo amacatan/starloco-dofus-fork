@@ -804,6 +804,29 @@ public class SPlayer extends DefaultUserdata<Player> {
     }
     //endregion
 
+    //region Morph
+    @SuppressWarnings("unused")
+    private static void setFullMorph(Player p, ArgumentIterator args) {
+        int morphId = args.nextInt();
+        p.setFullMorph(morphId, false, false);
+    }
+
+    @SuppressWarnings("unused")
+    private static void unsetFullMorph(Player p) {
+        p.unsetFullMorph();
+    }
+
+    @SuppressWarnings("unused")
+    private static boolean isFullMorph(Player p) {
+        return p.getMorphMode();
+    }
+
+    @SuppressWarnings("unused")
+    private static int morphId(Player p) {
+        return p.getMorphId();
+    }
+    //endregion
+
     //region Other
     @SuppressWarnings("unused")
     private static void forceFight(Player player, ArgumentIterator args) {

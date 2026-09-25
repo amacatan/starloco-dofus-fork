@@ -16,10 +16,28 @@ function npc:onTalk(p, answer)
     elseif answer == 1980 then p:ask(2375)
     elseif answer == 1981 then p:ask(2376, {1983, 1982, 1984})
     elseif answer == 1984 then p:ask(2379, {1990, 1989})
+    elseif answer == 1990 then
+        if p:tryLearnJob(WandCarverJob) then
+            p:ask(2393)
+        else
+            p:ask(336)
+        end
     elseif answer == 1989 then p:endDialog()
     elseif answer == 1982 then p:ask(2377, {1986, 1985})
+    elseif answer == 1986 then
+        if p:tryLearnJob(BowCarverJob) then
+            p:ask(2393)
+        else
+            p:ask(336)
+        end
     elseif answer == 1985 then p:endDialog()
     elseif answer == 1983 then p:ask(2378, {1988, 1987})
+    elseif answer == 1988 then
+        if p:tryLearnJob(StaffCarverJob) then
+            p:ask(2393)
+        else
+            p:ask(336)
+        end
     elseif answer == 1987 then p:endDialog()
     end
 end

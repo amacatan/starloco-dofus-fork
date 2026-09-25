@@ -13,22 +13,25 @@ function npc:onTalk(p, answer)
         return
     end
 
-    --TODO: Morph en fantôme en fonction de la réponse
     if answer == 0 then
         p:ask(6754, {6151, 6225})
     elseif answer == 6151 then
         p:ask(6755, {6152, 6153, 6154, 6155})
     elseif answer == 6152 then
         p:teleport(8979, 236)
+        p:setFullMorph(13) -- Bouloute
         p:endDialog()
     elseif answer == 6153 then
         p:teleport(8979, 236)
+        p:setFullMorph(14) -- Bébé Pandawa
         p:endDialog()
     elseif answer == 6154 then
         p:teleport(8979, 236)
+        p:setFullMorph(12) -- Dragoune
         p:endDialog()
     elseif answer == 6155 then
         p:teleport(8979, 236)
+        p:setFullMorph(15) -- Chacha
         p:endDialog()
     elseif answer == 6225 then
         p:endDialog()

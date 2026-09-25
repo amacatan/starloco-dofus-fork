@@ -3150,6 +3150,7 @@ public class JobAction {
             return;
         }
         if (this.player.getMetierBySkill(this.id) != this.SM) {
+            this.player.sendMessage(this.player.getLang().trans("jobaction.maging.tool.required"));
             this.rejectMagingAttempt(isReapeat);
             return;
         }
@@ -3212,6 +3213,10 @@ public class JobAction {
         }
         if (!isMagingLevelSufficient(this.SM.get_lvl(),
                 gameObject.getTemplate().getLevel())) {
+            this.player.sendMessage(this.player.getLang().trans("jobaction.maging.level.low",
+                    this.SM.get_lvl(),
+                    gameObject.getTemplate().getLevel(),
+                    this.SM.get_lvl() * 2));
             this.rejectMagingAttempt(isReapeat);
             return;
         }
@@ -3483,6 +3488,10 @@ public class JobAction {
                     this.rejectMagingAttempt(isReapeat);
                     return;
                 }
+                notifyMagingCommit(this.player, this.player,
+                        sourceGameObject, this.player, runeObject,
+                        signingObject == null ? null : this.player,
+                        signingObject, newObject);
                 if (winXP > 0)
                     this.SM.addXp(this.player, winXP);
                 this.player.send("JX|" + this.SM.getTemplate().getId() + ";"
@@ -3635,6 +3644,10 @@ public class JobAction {
                 this.rejectMagingAttempt(isReapeat);
                 return;
             }
+                notifyMagingCommit(this.player, this.player,
+                        sourceGameObject, this.player, runeObject,
+                        signingObject == null ? null : this.player,
+                        signingObject, newObject);
             if (pendingXp > 0)
                 this.SM.addXp(this.player, pendingXp);
             this.player.send(result == 1 ? "Im0194" : "Im0117");

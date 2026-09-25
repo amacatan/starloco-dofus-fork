@@ -34,3 +34,6 @@ docker-images/*.tar.sha256
 **/*~
 **/.DS_Store
 **/Thumbs.db
+
+reload-scripts.sh
+tools/

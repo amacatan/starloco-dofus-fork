@@ -207,6 +207,7 @@ public class Player implements Scripted<SPlayer>, Actor {
     private Map<Integer, Spell.SortStats> _saveSorts = new HashMap<>();
     private Map<Integer, Integer> _saveSortsPlaces = new HashMap<>();
     private int _saveSpellPts;
+    public boolean needMorphRefresh = false;
     private int pa = 0,
             pm = 0,
             vitalite = 0,
@@ -1093,7 +1094,7 @@ public class Player implements Scripted<SPlayer>, Actor {
                 if (!_morphMode)
                     learnSpell(id, lvl, false, false, false);
                 else
-                    learnSpell(id, lvl, false, true, false);
+                    learnSpell(id, lvl, false, false, false);
                 _sortsPlaces.put(id, position);
             } catch (NumberFormatException e1) {
                 e1.printStackTrace();
@@ -1283,7 +1284,6 @@ public class Player implements Scripted<SPlayer>, Actor {
         Job job = World.world.getMetier(jobID);
         if(job == null) return false;
 
-
         if(getMetierByID(jobID) != null) {
             // Already known
             if(sendIm) {
@@ -1291,17 +1291,6 @@ public class Player implements Scripted<SPlayer>, Actor {
             }
             return false;
         }
-
-        if(totalJobBasic()>=MAX_BASIC_JOBS) {
-            if(sendIm) {
-                SocketManager.GAME_SEND_Im_PACKET(this, "19");
-            }
-            return false;
-        }
-
-        // Common Precondition: All current jobs > 30
-        int min = _metiers.values().stream().mapToInt(JobStat::get_lvl).min().orElse(100);// 100 is the max level, so that's sure to be enough
-        if(min < MIN_JOB_LVL_FOR_NEW_JOB) return false;
 
         if(job.isMaging()) {
             // Magus Precondition: Less than 3 magus jobs
@@ -1312,13 +1301,27 @@ public class Player implements Scripted<SPlayer>, Actor {
                 return false;
             }
 
-            JobStat baseJobStats = _metiers.get(World.world.getMetierByMaging(jobID));
+            JobStat baseJobStats = getMetierByID(World.world.getMetierByMaging(jobID));
             if(baseJobStats == null || baseJobStats.get_lvl() < MIN_JOB_FOR_SPECIALTY) {
                 if(sendIm) {
                     SocketManager.GAME_SEND_Im_PACKET(this, "111");
                 }
                 return false;
             }
+        } else {
+            if(totalJobBasic()>=MAX_BASIC_JOBS) {
+                if(sendIm) {
+                    SocketManager.GAME_SEND_Im_PACKET(this, "19");
+                }
+                return false;
+            }
+
+            // Common Precondition: All current basic jobs > 30
+            int min = _metiers.values().stream()
+                    .filter(js -> !js.getTemplate().isMaging())
+                    .mapToInt(JobStat::get_lvl)
+                    .min().orElse(100);// 100 is the max level, so that's sure to be enough
+            if(min < MIN_JOB_LVL_FOR_NEW_JOB) return false;
         }
 
         return true;
@@ -1618,17 +1621,12 @@ public class Player implements Scripted<SPlayer>, Actor {
 
         if (fullMorph == null) return;
 
-        if (!join) {
-            if (!_morphMode) {
-                _saveSpellPts = _spellPts;
-                _saveSorts.putAll(_sorts);
-                _saveSortsPlaces.putAll(_sortsPlaces);
-            }
-            if (isLoad) {
-                _saveSpellPts = _spellPts;
-                _saveSorts.putAll(_sorts);
-                _saveSortsPlaces.putAll(_sortsPlaces);
-            }
+        if (!_morphMode || isLoad) {
+            _saveSpellPts = _spellPts;
+            _saveSorts.clear();
+            _saveSortsPlaces.clear();
+            _saveSorts.putAll(_sorts);
+            _saveSortsPlaces.putAll(_sortsPlaces);
         }
 
         _morphMode = true;
@@ -1709,13 +1707,15 @@ public class Player implements Scripted<SPlayer>, Actor {
         _spellPts = _saveSpellPts;
         _sorts.putAll(_saveSorts);
         _sortsPlaces.putAll(_saveSortsPlaces);
-        parseSpells(encodeSpellsToDB(), true);
 
         setMorphId(0);
         if (this.getFight() == null) {
+            SocketManager.GAME_SEND_ASK(this.getGameClient(), this);
             SocketManager.GAME_SEND_SPELL_LIST(this);
             SocketManager.GAME_SEND_STATS_PACKET(this);
             SocketManager.GAME_SEND_ALTER_GM_PACKET(this.curMap, this);
+        } else {
+            this.needMorphRefresh = true;
         }
         DatabaseManager.get(PlayerData.class).update(this);
     }
@@ -1735,16 +1735,14 @@ public class Player implements Scripted<SPlayer>, Actor {
     public void setSpellShortcuts(int spellId, int position) {
         removeSpellShortcutAtPosition(position);
         _sortsPlaces.remove(spellId);
-        if(position <= 30) _sortsPlaces.put(spellId, position);
+        if (position >= 1 && position <= 30) _sortsPlaces.put(spellId, position);
         DatabaseManager.get(PlayerData.class).update(this);
     }
 
     public void removeSpellShortcutAtPosition(int position) {
-        _sorts.keySet().stream()
-            .map(_sortsPlaces::get)
-            .filter(Objects::nonNull)
-            .filter(p -> p == position)
-            .forEach(_sortsPlaces::remove);
+        if (position >= 1 && position <= 30) {
+            _sortsPlaces.entrySet().removeIf(entry -> entry.getValue() == position);
+        }
     }
 
     public Spell.SortStats getSortStatBySortIfHas(int spellID) {
@@ -2927,7 +2925,8 @@ public class Player implements Scripted<SPlayer>, Actor {
         }
 
         JobStat sm = new JobStat(pos, m, 1, 0);
-        _metiers.put(pos, sm);//On apprend le m�tier lvl 1 avec 0 xp
+        _metiers.put(pos, sm);
+        DatabaseManager.get(PlayerData.class).update(this);//On apprend le m�tier lvl 1 avec 0 xp
         if (isOnline) {
             //on cr�er la listes des JobStats a envoyer (Seulement celle ci)
             ArrayList<JobStat> list = new ArrayList<>();
@@ -3497,6 +3496,12 @@ public class Player implements Scripted<SPlayer>, Actor {
         this.curMap.addPlayer(this);
         if (getAccount().getGameClient() != null)
             SocketManager.GAME_SEND_STATS_PACKET(this);
+        if (this.needMorphRefresh) {
+            this.needMorphRefresh = false;
+            SocketManager.GAME_SEND_ASK(this.getGameClient(), this);
+            SocketManager.GAME_SEND_SPELL_LIST(this);
+            SocketManager.GAME_SEND_ALTER_GM_PACKET(this.curMap, this);
+        }
     }
 
     public long getBankKamas() {

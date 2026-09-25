@@ -1771,8 +1771,15 @@ public class Fight {
                     player.getGameClient().kick();
                 if (fighter.isDeconnected())
                     player.getAccount().disconnect(player);
-                if (player.getMorphMode())
+                if (player.needMorphRefresh) {
+                    player.needMorphRefresh = false;
+                    SocketManager.GAME_SEND_ASK(player.getGameClient(), player);
                     SocketManager.GAME_SEND_SPELL_LIST(player);
+                    SocketManager.GAME_SEND_STATS_PACKET(player);
+                    SocketManager.GAME_SEND_ALTER_GM_PACKET(player.getCurMap(), player);
+                } else if (player.getMorphMode()) {
+                    SocketManager.GAME_SEND_SPELL_LIST(player);
+                }
                 if (player != null) {
                     try {
                         Thread.sleep(200);
@@ -4156,8 +4163,15 @@ public class Fight {
                     player.getGameClient().kick();
                 if (fighter.isDeconnected())
                     player.getAccount().disconnect(player);
-                if (player.getMorphMode())
+                if (player.needMorphRefresh) {
+                    player.needMorphRefresh = false;
+                    SocketManager.GAME_SEND_ASK(player.getGameClient(), player);
                     SocketManager.GAME_SEND_SPELL_LIST(player);
+                    SocketManager.GAME_SEND_STATS_PACKET(player);
+                    SocketManager.GAME_SEND_ALTER_GM_PACKET(player.getCurMap(), player);
+                } else if (player.getMorphMode()) {
+                    SocketManager.GAME_SEND_SPELL_LIST(player);
+                }
                 if (player.getParty() != null && player.getParty().getMaster() != null && player.getParty().getMaster().getId() == player.getId()) {
                     player.getParty().moveAllPlayersToMaster(player.getCurCell(), true);
                     TimerWaiter.addNext(() -> {

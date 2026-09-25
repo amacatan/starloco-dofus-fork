@@ -157,6 +157,8 @@ game.auction.auctionmanager.stop.none: "No hay comprador para este artículo"
 game.auction.auctionmanager.stop.next: "¡Pasemos a la siguiente!"
 
 jobaction.disable.walkfast: "Desactivar '.walfast' para evitar la penalización de 10 segundos adicionales"
+jobaction.maging.tool.required: "Você deve equipar a ferramenta apropriada para esta profissão."
+jobaction.maging.level.low: "O nível da sua profissão (#1) é insuficiente para forjamagiar um item de nível #2. (Nível máximo de item: #3)"
 
 event.findme.win: "¡Felicitaciones a quien lo encontró!"
 event.findme.find: "¡Encuéntrame, estoy en el #1!"

@@ -740,8 +740,11 @@ public class Action {
                 try {
                     int JobID = Integer.parseInt(args.split(",")[0]);
                     int XpValue = Integer.parseInt(args.split(",")[1]);
-                    if (player.getMetierByID(JobID) != null) {
-                        player.getMetierByID(JobID).addXp(player, XpValue);
+                    JobStat js = player.getMetierByID(JobID);
+                    if (js != null) {
+                        int rate = Math.max(1, Config.rateJob);
+                        js.addXp(player, (long) XpValue * rate);
+                        SocketManager.GAME_SEND_JX_PACKET(player, Collections.singletonList(js));
                     }
                 } catch (Exception e) {
                     e.printStackTrace();

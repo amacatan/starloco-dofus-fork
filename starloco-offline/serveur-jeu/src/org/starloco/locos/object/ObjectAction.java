@@ -178,8 +178,7 @@ public class ObjectAction {
                                         continue;
                                     }
 
-                                    boolean can = object.getTemplate().getId() >= 10382 && object.getTemplate().getId() <= 10407;
-                                    val = val * (can ? Config.rateJob : 1);
+                                    val = val * Math.max(1, Config.rateJob);
                                     job.addXp(player, val);
                                     SocketManager.GAME_SEND_JX_PACKET(player, new ArrayList<>(Collections.singletonList(job)));
                                     SocketManager.GAME_SEND_Im_PACKET(player, "017;" + val + "~" + Integer.parseInt(arg0.split(";")[1]));

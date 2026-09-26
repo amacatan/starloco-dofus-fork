@@ -13,7 +13,8 @@ local map = MapDef(
 map.positions = "cucIcWc-glgAgPg4|eDeReSe5e7fifjfx"
 map.capabilities = 0
 map.npcs = {
-    [174] = {212, 3}
+    [174] = {212, 3},
+    [1174] = {241, 3}
 }
 
 map.allowedMobGrades = {

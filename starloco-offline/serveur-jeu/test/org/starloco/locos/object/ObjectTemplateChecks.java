@@ -9,6 +9,7 @@ import org.starloco.locos.game.world.World;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import org.starloco.locos.object.entity.SoulStone;
 
 public final class ObjectTemplateChecks {
     private ObjectTemplateChecks() {
@@ -43,6 +44,7 @@ public final class ObjectTemplateChecks {
         petEpoMarkerSurvivesObjectPersistence();
         chanilRestorationUsesTheEpoMarker();
         chanilCopiesSoulStatsIndependently();
+        soulGemCreationAndEncodingWorks();
     }
 
     private static void chanilRestorationUsesTheEpoMarker() {
@@ -173,6 +175,24 @@ public final class ObjectTemplateChecks {
                 "Changing source spell stats must not mutate its clone");
     }
 
+
+    private static void soulGemCreationAndEncodingWorks() {
+        ObjectTemplate gemTemplate = new ObjectTemplate(998_100,
+                "147,43|148,21", "Gemme Spirituelle Test",
+                Constant.ITEM_TYPE_PIERRE_AME_PLEINE, 1, 1, 0, 0,
+                "", "", 0, 0, 0, 0);
+        World.world.addObjTemplate(gemTemplate);
+
+        check(gemTemplate.isFilledSoulStone(), "Template with type 85 must be identified as filled soul stone");
+
+        SoulStone stone = new SoulStone(998_101, 1, gemTemplate.getId(), Constant.ITEM_POS_NO_EQUIPED, "147,43|148,21");
+        check("26f####93,26f####94".equals(stone.encodeStats()),
+                "SoulStone must encode monster IDs as hex with effect 26f");
+        check("147,43,43;148,21,21".equals(stone.parseGroupData()),
+                "SoulStone group data must be formatted as id,lvl,lvl;...");
+        check("147,43|148,21".equals(stone.parseToSave()),
+                "SoulStone parseToSave must match id,lvl format");
+    }
     private static void check(boolean condition, String message) {
         if (!condition)
             throw new AssertionError(message);

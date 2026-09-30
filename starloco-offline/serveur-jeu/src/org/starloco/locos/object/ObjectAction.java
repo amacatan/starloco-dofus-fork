@@ -685,18 +685,26 @@ public class ObjectAction {
 
                     case 25://Spawn groupe.
                         if (player0.getFight() != null || player0.getCurMap().haveMobFix()) return;
-                        boolean inArena = arg.split(";")[0].equals("true");
+                        String[] parts25 = arg.split(";");
+                        boolean inArena = parts25.length > 0 && parts25[0].equals("true");
                         String groupData = "";
-                        if (inArena && !SoulStone.isInArenaMap(player.getCurMap().getId()))
+                        if (inArena && !SoulStone.isInArenaMap(player.getCurMap().getId())) {
+                            SocketManager.GAME_SEND_MESSAGE(player, player.getLang().trans("other.action.apply.startfightversusmonster"));
                             return;
-                        if (arg.split(";")[1].charAt(0) == '1') {
+                        }
+                        if (parts25.length > 1 && parts25[1].length() > 0 && parts25[1].charAt(0) == '1' && arg.contains("@")) {
                             groupData = arg.split("@")[1];
-                        } else {
+                        } else if (World.world.getGameObject(objet) instanceof SoulStone) {
                             SoulStone soulStone = (SoulStone) World.world.getGameObject(objet);
                             groupData = soulStone.parseGroupData();
+                        } else if (World.world.getGameObject(objet) != null) {
+                            SoulStone soulStone = new SoulStone(1, World.world.getGameObject(objet).getTemplate().getId(), Constant.ITEM_POS_NO_EQUIPED, World.world.getGameObject(objet).getTemplate().getStrTemplate());
+                            groupData = soulStone.parseGroupData();
                         }
-                        String condition = "MiS = " + player.getId();
-                        player.getCurMap().spawnNewGroup(true, player.getCurCell().getId(), groupData, condition);
+                        if (!groupData.isEmpty()) {
+                            String condition = "MiS = " + player.getId();
+                            player.getCurMap().spawnNewGroup(true, player.getCurCell().getId(), groupData, condition);
+                        }
                         break;
 
                     case 26://Ajout d'objet.

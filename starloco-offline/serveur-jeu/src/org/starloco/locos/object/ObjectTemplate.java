@@ -433,6 +433,8 @@ public class ObjectTemplate {
             return null;
         } else if(getType() == Constant.ITEM_TYPE_CERTIF_MONTURE) {
             item = new GameObject(-1, getId(), qua, Constant.ITEM_POS_NO_EQUIPED, generateNewStatsFromTemplate(getStrTemplate(), useMax), getEffectTemplate(getStrTemplate()), new HashMap<>(), new HashMap<>(), 0);
+        } else if (this.isFilledSoulStone()) {
+            return new SoulStone(qua, getId(), Constant.ITEM_POS_NO_EQUIPED, getStrTemplate());
         } else {
             if (getType() == Constant.ITEM_TYPE_OBJET_ELEVAGE) {
                 item = new GameObject(-1, getId(), qua, Constant.ITEM_POS_NO_EQUIPED, new Stats(false, null), new ArrayList<>(), new HashMap<>(), getStringResistance(getStrTemplate()), 0);
@@ -471,6 +473,8 @@ public class ObjectTemplate {
             return null;
         } else if(getType() == Constant.ITEM_TYPE_CERTIF_MONTURE) {
             item = new GameObject(id, getId(), qua, Constant.ITEM_POS_NO_EQUIPED, generateNewStatsFromTemplate(getStrTemplate(), useMax), getEffectTemplate(getStrTemplate()), new HashMap<>(), new HashMap<>(), 0);
+        } else if (this.isFilledSoulStone()) {
+            return new SoulStone(qua, getId(), Constant.ITEM_POS_NO_EQUIPED, getStrTemplate());
         } else {
             if (getType() == Constant.ITEM_TYPE_OBJET_ELEVAGE) {
                 item = new GameObject(id, getId(), qua, Constant.ITEM_POS_NO_EQUIPED, new Stats(false, null), new ArrayList<>(), new HashMap<>(), getStringResistance(getStrTemplate()), 0);
@@ -662,12 +666,18 @@ public class ObjectTemplate {
     public void applyAction(Player player, Player target, int objectId, short cellId, int quantity) {
         for (int i = 0; i < quantity; i++) {
             if (World.world.getGameObject(objectId) == null) return;
-            if (World.world.getGameObject(objectId).getTemplate().getType() == 85 && World.world.getGameObject(objectId).getTemplate().getId() == 7010) {
-                if (!SoulStone.isInArenaMap(player.getCurMap().getId()))
-                    if (!SoulStone.isInArenaMap(player.getCurMap().getId()))
-                        return;
+            if (World.world.getGameObject(objectId) instanceof SoulStone || World.world.getGameObject(objectId).getTemplate().getType() == 85) {
+                if (!SoulStone.isInArenaMap(player.getCurMap().getId())) {
+                    SocketManager.GAME_SEND_MESSAGE(player, player.getLang().trans("other.action.apply.startfightversusmonster"));
+                    return;
+                }
 
-                SoulStone soulStone = (SoulStone) World.world.getGameObject(objectId);
+                SoulStone soulStone = null;
+                if (World.world.getGameObject(objectId) instanceof SoulStone) {
+                    soulStone = (SoulStone) World.world.getGameObject(objectId);
+                } else {
+                    soulStone = new SoulStone(1, World.world.getGameObject(objectId).getTemplate().getId(), Constant.ITEM_POS_NO_EQUIPED, World.world.getGameObject(objectId).getTemplate().getStrTemplate());
+                }
 
                 player.getCurMap().spawnNewGroup(true, player.getCurCell().getId(), soulStone.parseGroupData(), "MiS=" + player.getId());
                 SocketManager.GAME_SEND_Im_PACKET(player, "022;" + 1 + "~" + World.world.getGameObject(objectId).getTemplate().getId());

@@ -19,7 +19,6 @@ public class SoulStone extends GameObject {
         super(id, template, quantity, pos, strStats, 0);
         this.monsters = new ArrayList<>();
         this.stringToStats(strStats);
-        ((ObjectData) DatabaseManager.get(ObjectData.class)).insert(this);
     }
 
     public SoulStone(int quantity, int template, int pos, String strStats) {
@@ -92,6 +91,7 @@ public class SoulStone extends GameObject {
     }
 
     public static boolean isInArenaMap(int id) {
-        return "10131,10132,10133,10134,10135,10136,10137,10138".contains(String.valueOf(id));
+        /*return "10131,10132,10133,10134,10135,10136,10137,10138".contains(String.valueOf(id)); */
+        return id >= 10131 && id <= 10138;
     }
 }

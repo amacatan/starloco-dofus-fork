@@ -2081,6 +2081,56 @@ public class GameClient {
         }
     }
 
+    public synchronized int crushItems(java.util.function.Predicate<GameObject> filter) {
+        if (this.player == null || this.player.isInPrison() || this.player.getFight() != null)
+            return 0;
+
+        synchronized (this.player.getItems()) {
+            List<GameObject> toCrush = new ArrayList<>();
+            for (GameObject object : this.player.getItems().values()) {
+                if (object == null) continue;
+                if (!isBreakableCrusherObject(object)) continue;
+                if (filter != null && !filter.test(object)) continue;
+                toCrush.add(object);
+            }
+
+            if (toCrush.isEmpty())
+                return 0;
+
+            org.starloco.locos.object.entity.Fragment fragment = new org.starloco.locos.object.entity.Fragment(-1, "");
+            List<ObjectData.CrusherDebit> debits = new ArrayList<>();
+            for (GameObject object : toCrush) {
+                addCrusherRunes(fragment, object, object.getQuantity());
+                debits.add(new ObjectData.CrusherDebit(object, object.getQuantity()));
+            }
+
+            ObjectData objectData = DatabaseManager.get(ObjectData.class);
+            PlayerData playerData = DatabaseManager.get(PlayerData.class);
+            if (objectData == null || playerData == null)
+                return -1;
+
+            ObjectData.CrusherBatch batch;
+            synchronized (playerData) {
+                synchronized (objectData) {
+                    batch = objectData.persistCrusherExchangeAtomically(
+                            this.player, fragment, debits);
+                    if (batch == null)
+                        return -1;
+                    batch.applyToMemory();
+                }
+            }
+
+            notifyCommittedCrusherBatch(batch);
+
+            ExchangeAction<?> exchangeAction = this.player.getExchangeAction();
+            if (exchangeAction != null && exchangeAction.getValue() instanceof BreakingObject) {
+                ((BreakingObject) exchangeAction.getValue()).clearObjects();
+            }
+
+            return debits.size();
+        }
+    }
+
     private void notifyCommittedCrusherBatch(ObjectData.CrusherBatch batch) {
         for (ObjectData.CrusherDebit debit : batch.getDebits()) {
             try {
@@ -5615,6 +5665,7 @@ public class GameClient {
             return;
         }
         if (map.getPlaces().size() < 2 || SoulStone.isInArenaMap(map.getId()) || map.data.noCollectors) {//La map ne poss?de pas de "places"
+            System.out.println("DEBUG PERCO - Map " + map.getId() + " | Places Size: " + map.getPlaces().size() + " | Arena: " + SoulStone.isInArenaMap(map.getId()) + " | NoCollectors: " + map.data.noCollectors);
             SocketManager.GAME_SEND_Im_PACKET(this.player, "113");
             return;
         }

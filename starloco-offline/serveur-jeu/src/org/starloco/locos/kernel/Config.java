@@ -27,6 +27,13 @@ public class Config {
     public static short rateXp, rateDrop, rateHonor, rateJob, rateKamas, rateFm;
     public static double rateProspectThreshold;
 
+    //custom features & web
+    public static String serverWebUrl = "http://10.0.60.110/new/";
+    public static boolean dailyQuestEnabled = true;
+    public static int dailyQuestReward = 50;
+    public static int voteReward = 50;
+    public static int voteCooldown = 7200;
+
     public static void verify(String name) {
         if(new File(name).exists()) load(name);
         else create(name);
@@ -108,6 +115,13 @@ public class Config {
             Config.modeHeroic = Boolean.parseBoolean(properties.getProperty(Params.MODE_HEROIC.toString())); i++;
             Config.modeEvent = Boolean.parseBoolean(properties.getProperty(Params.MODE_EVENT.toString())); i++;
             Config.timeBetweenEvent = Integer.parseInt(properties.getProperty(Params.TIME_BETWEEN_EVENT.toString()));
+            try {
+                Config.serverWebUrl = properties.getProperty("system.server.web.url", "http://10.0.60.110/new/");
+                Config.dailyQuestEnabled = Boolean.parseBoolean(properties.getProperty("system.server.daily.enabled", "true"));
+                Config.dailyQuestReward = Integer.parseInt(properties.getProperty("system.server.daily.reward", "50"));
+                Config.voteReward = Integer.parseInt(properties.getProperty("system.server.vote.reward", "50"));
+                Config.voteCooldown = Integer.parseInt(properties.getProperty("system.server.vote.cooldown", "7200"));
+            } catch(Exception ignored) {}
         } catch(Exception e) {
             Main.logger.error(" > Config : not found or invalid parameters! (line " + i + ")");
             verify(name);

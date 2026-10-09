@@ -47,6 +47,7 @@ public class Account {
     private byte state;
     private String lastVoteIP;
     private long heureVote;
+    private String dailyQuestDate = "";
     private final List<GameObject> bank = new ArrayList<>();
     private final List<Integer> friends = new ArrayList<>();
     private final List<Integer> enemys = new ArrayList<>();
@@ -97,7 +98,7 @@ public class Account {
             }
         }
 
-        if (DatabaseManager.get(GiftData.class).load(guid).getSecond() == null)
+        if (DatabaseManager.get(GiftData.class) != null && DatabaseManager.get(GiftData.class).load(guid) != null && DatabaseManager.get(GiftData.class).load(guid).getSecond() == null)
             DatabaseManager.get(GiftData.class).insert(new Pair<>(this, ""));
     }
 
@@ -264,6 +265,14 @@ public class Account {
 
     public byte getState() {
         return state;
+    }
+
+    public long getSubscriber() {
+        return this.subscriber;
+    }
+
+    public void setSubscriber(long subscriber) {
+        this.subscriber = subscriber;
     }
 
     public void setSubscribe() {
@@ -531,6 +540,30 @@ public class Account {
         if (hour.equalsIgnoreCase("")) this.heureVote = 0;
         else this.heureVote = Long.parseLong(hour);
         this.lastVoteIP = ip;
+    }
+
+    public String getDailyQuestDate() {
+        return this.dailyQuestDate;
+    }
+
+    public void setDailyQuestDate(String dailyQuestDate) {
+        this.dailyQuestDate = (dailyQuestDate == null) ? "" : dailyQuestDate;
+    }
+
+    public boolean hasCompletedDailyBossToday() {
+        if (this.dailyQuestDate == null || this.dailyQuestDate.isEmpty()) return false;
+        try {
+            java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
+            return today.toString().equals(this.dailyQuestDate);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public void recordDailyBossCompletion(long time, int points) {
+        String today = java.time.LocalDate.now(java.time.ZoneId.systemDefault()).toString();
+        this.dailyQuestDate = today;
+        DatabaseManager.get(AccountData.class).recordDailyBossCompletion(this, today, points);
     }
 
     public void parseBank(int kamas, String items) {

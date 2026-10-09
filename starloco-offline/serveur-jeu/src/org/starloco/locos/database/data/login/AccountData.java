@@ -38,6 +38,9 @@ public class AccountData extends FunctionDAO<Account> {
                 try {
                     acc.setVip(result.getInt("vip"));
                 } catch(Exception ignored) {}
+                try {
+                    acc.setDailyQuestDate(result.getString("daily_quest_date"));
+                } catch(Exception ignored) {}
                 World.world.addAccount(acc);
 
                 // Load account specific data
@@ -122,6 +125,73 @@ public class AccountData extends FunctionDAO<Account> {
             p.setString(1, compte.getCurrentIp());
             p.setString(2, compte.getLastConnectionDate());
             p.setInt(3, compte.getId());
+            execute(p);
+        } catch (SQLException e) {
+            super.sendError(e);
+        } finally {
+            close(p);
+        }
+    }
+
+    public void updateVip(Account account, int vip) {
+        account.setVip(vip);
+        PreparedStatement p = null;
+        try {
+            p = getPreparedStatement("UPDATE " + getTableName() + " SET `vip` = ? WHERE `guid` = ?");
+            p.setInt(1, vip);
+            p.setInt(2, account.getId());
+            execute(p);
+        } catch (SQLException e) {
+            super.sendError(e);
+        } finally {
+            close(p);
+        }
+    }
+
+    public void updateSubscribe(Account account, long subscribeTime) {
+        account.setSubscriber(subscribeTime);
+        PreparedStatement p = null;
+        try {
+            p = getPreparedStatement("UPDATE " + getTableName() + " SET `subscribe` = ? WHERE `guid` = ?");
+            p.setLong(1, subscribeTime);
+            p.setInt(2, account.getId());
+            execute(p);
+        } catch (SQLException e) {
+            super.sendError(e);
+        } finally {
+            close(p);
+        }
+    }
+
+    public void recordDailyBossCompletion(Account account, String questDate, int bonusPoints) {
+        account.setDailyQuestDate(questDate);
+        if (bonusPoints > 0) {
+            account.modPoints(bonusPoints);
+        }
+        PreparedStatement p = null;
+        try {
+            p = getPreparedStatement("UPDATE " + getTableName() + " SET `daily_quest_date` = ? WHERE `guid` = ?");
+            p.setString(1, questDate);
+            p.setInt(2, account.getId());
+            execute(p);
+        } catch (SQLException e) {
+            super.sendError(e);
+        } finally {
+            close(p);
+        }
+    }
+
+    public void recordVote(Account account, long voteTime, int bonusPoints) {
+        account.updateVote(String.valueOf(voteTime), account.getCurrentIp() == null ? "" : account.getCurrentIp());
+        if (bonusPoints > 0) {
+            account.modPoints(bonusPoints);
+        }
+        PreparedStatement p = null;
+        try {
+            p = getPreparedStatement("UPDATE " + getTableName() + " SET `heurevote` = ?, `lastVoteIP` = ?, `votes` = `votes` + 1, `totalVotes` = `totalVotes` + 1 WHERE `guid` = ?");
+            p.setLong(1, voteTime);
+            p.setString(2, account.getCurrentIp() == null ? "" : account.getCurrentIp());
+            p.setInt(3, account.getId());
             execute(p);
         } catch (SQLException e) {
             super.sendError(e);

@@ -7,12 +7,13 @@ import java.util.Map;
 /**
  * Created by Locos on 04/04/2018.
  */
-public enum  LangEnum {
+public enum LangEnum {
 
     FRENCH("fr"),
     ENGLISH("en"),
     SPANISH("es"),
-    PORTUGUESE("pt");
+    PORTUGUESE("pt"),
+    GERMAN("de");
 
     private final String flag;
     private Map<String,Object> result;
@@ -43,6 +44,10 @@ public enum  LangEnum {
     }
 
     private static Map<String, Object> loadYAML(String fileName) {
-        return (Map<String, Object>) new Yaml().load(LangEnum.class.getResourceAsStream("/translations/" + fileName));
+        try {
+            return (Map<String, Object>) new Yaml().load(LangEnum.class.getResourceAsStream("/translations/" + fileName));
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

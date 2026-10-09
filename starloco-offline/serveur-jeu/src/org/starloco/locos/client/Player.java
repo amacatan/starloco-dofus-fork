@@ -223,6 +223,7 @@ public class Player implements Scripted<SPlayer>, Actor {
     private int oldCell = 0;
     private String _allTitle = "";
     private boolean isBlocked = false;
+    private boolean skipLootPanel = false;
     //Regen hp
     private boolean sitted;
     private int regenRate = 2000;
@@ -1031,14 +1032,15 @@ public class Player implements Scripted<SPlayer>, Actor {
     }
 
     public void parseSpells(String str, boolean send) {
-        if(str.length() == 0) throw new IllegalArgumentException("passed empty spell string to parseSpells");
-//        if(str.equalsIgnoreCase("")) {
-//            _sorts = Constant.getStartSorts(classe);
-//            for (int a = 1; a <= this.getLevel(); a++)
-//                Constant.onLevelUpSpells(this, a);
-//            this._sortsPlaces = Constant.getStartSortsPlaces(this.classe);
-//            return;
-//        }
+        if(str == null || str.trim().isEmpty()) {
+            _sorts.clear();
+            _sorts.putAll(Constant.getStartSorts(classe));
+            for (int a = 1; a <= this.getLevel(); a++)
+                Constant.onLevelUpSpells(this, a);
+            this._sortsPlaces.clear();
+            this._sortsPlaces.putAll(Constant.getStartSortsPlaces(this.classe));
+            return;
+        }
 
         Map<Integer, Spell.SortStats> spells = _sorts;
         Map<Integer, Integer> spellPositions = _sortsPlaces;
@@ -6275,5 +6277,13 @@ public class Player implements Scripted<SPlayer>, Actor {
                 String.valueOf(e.second.templateId),
                 e.second.strStats)
             ).forEach(this::send);
+    }
+
+    public boolean isSkipLootPanel() {
+        return this.skipLootPanel;
+    }
+
+    public void setSkipLootPanel(boolean skipLootPanel) {
+        this.skipLootPanel = skipLootPanel;
     }
 }

@@ -1,5 +1,7 @@
 package org.starloco.locos.fight;
 
+import org.starloco.locos.quest.DailyDungeonQuest;
+
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.util.*;
@@ -4241,6 +4243,7 @@ public class Fight {
                     player.teleportOldMap();
 
         if (this.getType() == Constant.FIGHT_TYPE_PVM) {
+            DailyDungeonQuest.checkFightReward(player, looseTeam);
             GameObject obj = player.getObjetByPos(Constant.ITEM_POS_FAMILIER);
             if (obj != null) {
                 Map<Integer, Integer> souls = new HashMap<>();

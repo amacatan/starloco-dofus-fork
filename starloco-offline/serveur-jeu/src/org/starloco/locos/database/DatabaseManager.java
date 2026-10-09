@@ -40,7 +40,7 @@ public class DatabaseManager {
         logger.debug("Connection to the login database, ok");
         this.game = this.createHikariDataSource(Config.databaseGameHost, String.valueOf(Config.databaseGamePort), Config.databaseGameName, Config.databaseGameUser, Config.databaseGamePass);
         logger.debug("Connection to the game database, ok");
-        this.initialize();
+        if (this.login != null && this.game != null) this.initialize();
         logger.debug("All data have been initialized");
         logger.setLevel(Level.ERROR);
     }
@@ -116,6 +116,7 @@ public class DatabaseManager {
         this.daos.add(new ZaapiData(this.game));
         this.daos.add(new HeroicMobsGroupsData(this.game));
         this.daos.add(new QuestProgressData(this.game));
+        this.daos.add(new DailyQuestData(this.game));
         //endregion
     }
 
@@ -129,6 +130,7 @@ public class DatabaseManager {
      * @return connection or null
      */
     private HikariDataSource createHikariDataSource(String host, String port, String database, String user, String pass) {
+        if (host == null || database == null) return null;
         HikariConfig config = new HikariConfig();
         config.setDataSourceClassName("com.mysql.jdbc.jdbc2.optional.MysqlDataSource");
         config.addDataSourceProperty("serverName", host);

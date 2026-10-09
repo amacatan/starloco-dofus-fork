@@ -25,19 +25,14 @@ class ServerList {
     static String serverList(Account account) {
         StringBuilder sb = new StringBuilder(account.getSubscribeRemaining() + "");
 
+        // Include all registered servers with their EXACT and HONEST character counts (0 if no characters exist).
+        // This ensures the client shows (0) for empty servers and never displays phantom/fake characters.
         for (Server server : Server.servers.values()) {
             if (server == null) {
                 continue;
             }
             int characterCount = characterNumber(account, server.getId());
-            if (characterCount > 0) {
-                sb.append("|").append(server.getId()).append(",").append(characterCount);
-            } else if (server.getClient() != null && server.getState() == 1) {
-                // The Retro client only exposes a server in this packet when the count is
-                // positive. Advertise one slot for an empty account so it can select the
-                // server and create its first character; the game server sends the real list.
-                sb.append("|").append(server.getId()).append(",1");
-            }
+            sb.append("|").append(server.getId()).append(",").append(characterCount);
         }
 
         Console.instance.write("[" + account.getClient().getIoSession().getId() + "] Sending list of server of account name " + account.getName() + ". List : '" + sb.toString() + "'");

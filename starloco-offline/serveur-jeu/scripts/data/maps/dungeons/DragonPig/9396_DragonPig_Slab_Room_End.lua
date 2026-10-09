@@ -16,4 +16,21 @@ map.npcs = {
     [784] = {313, 1}
 }
 
-
+map.onMovementEnd = {
+    [195] = moveEndTeleport(9385, 141),
+    [209] = moveEndTeleport(9372, 92),
+    [210] = moveEndTeleport(9391, 162),
+    [223] = moveEndTeleport(9373, 141),
+    [225] = moveEndTeleport(9382, 366),
+    [237] = moveEndTeleport(9374, 155),
+    [240] = moveEndTeleport(9378, 82),
+    [251] = moveEndTeleport(9371, 92),
+    [255] = moveEndTeleport(9384, 351),
+    [266] = moveEndTeleport(9386, 141),
+    [269] = moveEndTeleport(9394, 352),
+    [281] = moveEndTeleport(9376, 82),
+    [283] = moveEndTeleport(9389, 307),
+    [296] = moveEndTeleport(9388, 322),
+    [297] = moveEndTeleport(9379, 82),
+    [311] = moveEndTeleport(9393, 352),
+}

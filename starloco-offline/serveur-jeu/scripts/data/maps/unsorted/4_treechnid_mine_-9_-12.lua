@@ -11,7 +11,7 @@ local map = MapDef(
 )
 
 map.positions = "eOe2e3fefffsftfH|ezeNe1fdfgfufIfW"
-map.capabilities = 0
+map.capabilities = 110
 
 local mobGroup1 = {
     {253, {1, 2, 3, 4, 5}},

@@ -19,3 +19,6 @@ AnimatedObjects.SlidingRockIncarnam = RegisterAnimation(6571, AnimStates.NOT_REA
 
 --- Sliding mine cart
 AnimatedObjects.SlidingMineCart     = RegisterAnimation(6553, AnimStates.NOT_READY, doorSG(8050, 666))
+
+--- Dragon Pig Maze doors
+AnimatedObjects.DragonPigMazeDoor   = RegisterAnimation(6560, AnimStates.NOT_READY, doorSG(600, 600))

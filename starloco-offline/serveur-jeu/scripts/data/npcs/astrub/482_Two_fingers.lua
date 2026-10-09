@@ -19,14 +19,44 @@ function npc:onTalk(p, answer)
     elseif answer == 1992 then p:ask(2381, {1995, 1993, 1997, 1996, 1994})
     elseif answer == 1993 then p:ask(2382, {1999, 1998})
     elseif answer == 1998 then p:endDialog()
+    elseif answer == 1999 then
+        if p:tryLearnJob(SwordSmithJob) then
+            p:ask(2390, {4840})
+        else
+            p:ask(1489)
+        end
     elseif answer == 1994 then p:ask(2383, {2001, 2000})
     elseif answer == 2000 then p:endDialog()
+    elseif answer == 2001 then
+        if p:tryLearnJob(DaggerSmithJob) then
+            p:ask(2390, {4840})
+        else
+            p:ask(1489)
+        end
     elseif answer == 1995 then p:ask(2384, {2003, 2002})
     elseif answer == 2002 then p:endDialog()
+    elseif answer == 2003 then
+        if p:tryLearnJob(ShovelSmithJob) then
+            p:ask(2390, {4840})
+        else
+            p:ask(1489)
+        end
     elseif answer == 1996 then p:ask(2385, {2005, 2004})
     elseif answer == 2004 then p:endDialog()
+    elseif answer == 2005 then
+        if p:tryLearnJob(HammerSmithJob) then
+            p:ask(2390, {4840})
+        else
+            p:ask(1489)
+        end
     elseif answer == 1997 then p:ask(2386, {2007, 2006})
     elseif answer == 2006 then p:endDialog()
+    elseif answer == 2007 then
+        if p:tryLearnJob(AxeSmithJob) then
+            p:ask(2390, {4840})
+        else
+            p:ask(1489)
+        end
     end
 end
 

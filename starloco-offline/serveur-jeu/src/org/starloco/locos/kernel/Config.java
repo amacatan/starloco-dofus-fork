@@ -30,6 +30,8 @@ public class Config {
     //custom features & web
     public static String serverWebUrl = "http://10.0.60.110/new/";
     public static boolean dailyQuestEnabled = true;
+    public static boolean voteEnabled = false;
+    public static String voteUrl = "";
     public static int dailyQuestReward = 50;
     public static int voteReward = 50;
     public static int voteCooldown = 7200;
@@ -119,6 +121,8 @@ public class Config {
                 Config.serverWebUrl = properties.getProperty("system.server.web.url", "http://10.0.60.110/new/");
                 Config.dailyQuestEnabled = Boolean.parseBoolean(properties.getProperty("system.server.daily.enabled", "true"));
                 Config.dailyQuestReward = Integer.parseInt(properties.getProperty("system.server.daily.reward", "50"));
+                Config.voteEnabled = Boolean.parseBoolean(properties.getProperty("system.server.vote.enabled", "false"));
+                Config.voteUrl = properties.getProperty("system.server.vote.url", "");
                 Config.voteReward = Integer.parseInt(properties.getProperty("system.server.vote.reward", "50"));
                 Config.voteCooldown = Integer.parseInt(properties.getProperty("system.server.vote.cooldown", "7200"));
             } catch(Exception ignored) {}

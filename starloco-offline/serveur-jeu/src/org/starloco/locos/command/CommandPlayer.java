@@ -577,8 +577,15 @@ public class CommandPlayer {
     }
 
     private static boolean commandVote(Player player, String msg) {
+        if (!Config.voteEnabled) {
+            player.sendMessage("Der Befehl <b>.vote</b> ist derzeit deaktiviert.");
+            return true;
+        }
         Account account = player.getAccount();
         if (account == null) return true;
+        if (Config.voteUrl != null && !Config.voteUrl.trim().isEmpty()) {
+            player.sendMessage("Stimme jetzt für unseren Server ab: <b>" + Config.voteUrl.trim() + "</b>");
+        }
         long now = System.currentTimeMillis();
         long lastVote = account.getHeureVote();
         long cooldown = Config.voteCooldown * 1000L;

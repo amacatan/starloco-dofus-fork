@@ -170,9 +170,10 @@ public class AccountData extends FunctionDAO<Account> {
         }
         PreparedStatement p = null;
         try {
-            p = getPreparedStatement("UPDATE " + getTableName() + " SET `daily_quest_date` = ? WHERE `guid` = ?");
+            p = getPreparedStatement("UPDATE " + getTableName() + " SET `daily_quest_date` = ?, `points` = `points` + ? WHERE `guid` = ?");
             p.setString(1, questDate);
-            p.setInt(2, account.getId());
+            p.setInt(2, bonusPoints);
+            p.setInt(3, account.getId());
             execute(p);
         } catch (SQLException e) {
             super.sendError(e);
@@ -188,10 +189,11 @@ public class AccountData extends FunctionDAO<Account> {
         }
         PreparedStatement p = null;
         try {
-            p = getPreparedStatement("UPDATE " + getTableName() + " SET `heurevote` = ?, `lastVoteIP` = ?, `votes` = `votes` + 1, `totalVotes` = `totalVotes` + 1 WHERE `guid` = ?");
+            p = getPreparedStatement("UPDATE " + getTableName() + " SET `heurevote` = ?, `lastVoteIP` = ?, `votes` = `votes` + 1, `totalVotes` = `totalVotes` + 1, `points` = `points` + ? WHERE `guid` = ?");
             p.setLong(1, voteTime);
             p.setString(2, account.getCurrentIp() == null ? "" : account.getCurrentIp());
-            p.setInt(3, account.getId());
+            p.setInt(3, bonusPoints);
+            p.setInt(4, account.getId());
             execute(p);
         } catch (SQLException e) {
             super.sendError(e);

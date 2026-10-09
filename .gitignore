@@ -2,3 +2,5 @@
 /starloco-offline/sources/starloco-docker/web/dofus/Dofus Retro.exe
 starloco-offline/serveur-jeu/game.config.properties
 
+starloco-dev/
+starloco-offline/serveur-jeu/run.sh

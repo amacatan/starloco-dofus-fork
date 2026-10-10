@@ -29,3 +29,4 @@ map.allowedMobGrades = {
 
 
 
+map.onFightEnd[PVMFightType] = fightEndTeleportWinnerPlayer(10257, 211)

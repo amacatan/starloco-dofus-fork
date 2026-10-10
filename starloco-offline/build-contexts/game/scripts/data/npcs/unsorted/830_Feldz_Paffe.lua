@@ -21,6 +21,7 @@ function npc:onTalk(p, answer)
                 {1052, 240}
             }
             local exit = exits[math.random(#exits)]
+            p:sendAction(-1, 2, "6")
             p:teleport(exit[1], exit[2])
             p:endDialog()
         end

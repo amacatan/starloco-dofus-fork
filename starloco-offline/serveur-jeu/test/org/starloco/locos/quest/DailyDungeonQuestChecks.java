@@ -1,6 +1,7 @@
 package org.starloco.locos.quest;
 
 import org.starloco.locos.client.Account;
+import org.starloco.locos.lang.LangEnum;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -12,6 +13,7 @@ public final class DailyDungeonQuestChecks {
 
     public static void run() {
         bossPoolIsValidAndComplete();
+        multilingualNamesAreConfigured();
         currentBossResolutionMatchesToday();
         remainingTimeStringIsFormatted();
         accountDailyCompletionCheckWorks();
@@ -28,6 +30,30 @@ public final class DailyDungeonQuestChecks {
             check(boss.getLocation() != null && !boss.getLocation().isEmpty(), "Boss location must not be empty: " + boss.getName());
             check(boss.getLevel() > 0, "Boss level must be positive: " + boss.getName());
         }
+    }
+
+    private static void multilingualNamesAreConfigured() {
+        List<DailyDungeonQuest.DailyBoss> pool = DailyDungeonQuest.getBossPool();
+        LangEnum[] langs = {LangEnum.GERMAN, LangEnum.FRENCH, LangEnum.ENGLISH};
+        boolean foundSponge = false;
+
+        for (DailyDungeonQuest.DailyBoss boss : pool) {
+            for (LangEnum lang : langs) {
+                check(boss.getName(lang) != null && !boss.getName(lang).isEmpty(), "Localized name must not be empty for " + lang);
+                check(boss.getDungeon(lang) != null && !boss.getDungeon(lang).isEmpty(), "Localized dungeon must not be empty for " + lang);
+                check(boss.getLocation(lang) != null && !boss.getLocation(lang).isEmpty(), "Localized location must not be empty for " + lang);
+            }
+            if (boss.getMonsterId() == 928) {
+                foundSponge = true;
+                check("Spongemob Schwammtopf".equals(boss.getName(LangEnum.GERMAN)), "Boss 928 DE name mismatch");
+                check("Versandetes Dungeon".equals(boss.getDungeon(LangEnum.GERMAN)), "Boss 928 DE dungeon mismatch");
+                check("Mob l'Éponge".equals(boss.getName(LangEnum.FRENCH)), "Boss 928 FR name mismatch");
+                check("Donjon Ensablé".equals(boss.getDungeon(LangEnum.FRENCH)), "Boss 928 FR dungeon mismatch");
+                check("Sponge Mob".equals(boss.getName(LangEnum.ENGLISH)), "Boss 928 EN name mismatch");
+                check("Sand Dungeon".equals(boss.getDungeon(LangEnum.ENGLISH)), "Boss 928 EN dungeon mismatch");
+            }
+        }
+        check(foundSponge, "Boss 928 must exist in pool");
     }
 
     private static void currentBossResolutionMatchesToday() {

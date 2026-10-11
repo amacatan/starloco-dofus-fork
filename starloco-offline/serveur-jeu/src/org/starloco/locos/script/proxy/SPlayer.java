@@ -33,6 +33,7 @@ import org.starloco.locos.script.types.MetaTables;
 import org.starloco.locos.util.Pair;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -598,6 +599,22 @@ public class SPlayer extends DefaultUserdata<Player> {
     }
 
     @SuppressWarnings("unused")
+    private static boolean addSoulStone(Player p, ArgumentIterator args) {
+        String stats = args.nextString().toString();
+        int templateId = args.nextOptionalInt(7010);
+        if (stats.isEmpty()) return false;
+
+        SoulStone stone = new SoulStone(1, templateId, Constant.ITEM_POS_NO_EQUIPED, stats);
+        if (p.addItem(stone, false, true)) {
+            World.world.addGameObject(stone);
+        }
+        if (p.isOnline()) {
+            SocketManager.GAME_SEND_Ow_PACKET(p);
+        }
+        return true;
+    }
+
+    @SuppressWarnings("unused")
     private static Table consumeSoulStones(Player p, ArgumentIterator args) {
         List<Integer> requestedMonsters = ScriptVM.intsFromLuaTable(args.nextOptionalTable(null));
         if (requestedMonsters.isEmpty()) {
@@ -606,7 +623,8 @@ public class SPlayer extends DefaultUserdata<Player> {
 
         Set<Integer> neededMonsters = new LinkedHashSet<>(requestedMonsters);
         List<Integer> completedMonsters = new ArrayList<>();
-        boolean consumedAny = false;
+        ObjectData objectData = DatabaseManager.get(ObjectData.class);
+        boolean inventoryChanged = false;
 
         for (GameObject item : new ArrayList<>(p.getItems().values())) {
             if (neededMonsters.isEmpty()) break;
@@ -614,46 +632,105 @@ public class SPlayer extends DefaultUserdata<Player> {
             if (!(item instanceof SoulStone)) continue;
 
             SoulStone stone = (SoulStone) item;
-            int availableCopies = stone.getQuantity();
-            int consumedFromStack = 0;
 
-            while (availableCopies > 0 && !neededMonsters.isEmpty()) {
-                List<Integer> matchedInStone = stone.getMonsterIDs()
-                        .filter(neededMonsters::contains)
-                        .distinct()
-                        .collect(Collectors.toList());
-                if (matchedInStone.isEmpty()) {
-                    break;
-                }
-                for (Integer mobId : matchedInStone) {
-                    neededMonsters.remove(mobId);
-                    completedMonsters.add(mobId);
-                }
-                availableCopies--;
-                consumedFromStack++;
-            }
-
-            if (consumedFromStack > 0) {
-                consumedAny = true;
-                if (availableCopies > 0) {
-                    stone.setQuantity(availableCopies);
-                    if (p.isOnline()) {
-                        SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(p, stone);
-                    }
-                } else {
-                    p.getItems().remove(stone.getGuid());
-                    World.world.removeGameObject(stone.getGuid());
-                    if (p.isOnline()) {
-                        SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(p, stone.getGuid());
+            if (stone.getQuantity() == 1) {
+                boolean modifiedThisStone = false;
+                Iterator<Pair<Integer, Integer>> it = stone.getMonsters().iterator();
+                while (it.hasNext() && !neededMonsters.isEmpty()) {
+                    Pair<Integer, Integer> entry = it.next();
+                    if (neededMonsters.remove(entry.first)) {
+                        completedMonsters.add(entry.first);
+                        it.remove();
+                        modifiedThisStone = true;
                     }
                 }
-                if (p.isOnline()) {
-                    SocketManager.GAME_SEND_Im_PACKET(p, "022;" + consumedFromStack + "~" + stone.getTemplate().getId());
+
+                if (modifiedThisStone) {
+                    inventoryChanged = true;
+                    if (stone.getMonsters().isEmpty()) {
+                        p.getItems().remove(stone.getGuid());
+                        World.world.removeGameObject(stone.getGuid());
+                        if (objectData != null) {
+                            objectData.delete(stone);
+                        }
+                        if (p.isOnline()) {
+                            SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(p, stone.getGuid());
+                            SocketManager.GAME_SEND_Im_PACKET(p, "022;1~" + stone.getTemplate().getId());
+                        }
+                    } else {
+                        if (objectData != null) {
+                            objectData.update(stone);
+                        }
+                        if (p.isOnline()) {
+                            SocketManager.GAME_SEND_UPDATE_ITEM(p, stone);
+                        }
+                    }
+                }
+            } else {
+                int availableCopies = stone.getQuantity();
+                int consumedFromStack = 0;
+                List<String> partialRemainingStats = new ArrayList<>();
+
+                while (availableCopies > 0 && !neededMonsters.isEmpty()) {
+                    List<Pair<Integer, Integer>> copyMonsters = new ArrayList<>(stone.getMonsters());
+                    boolean modifiedCopy = false;
+                    Iterator<Pair<Integer, Integer>> it = copyMonsters.iterator();
+                    while (it.hasNext() && !neededMonsters.isEmpty()) {
+                        Pair<Integer, Integer> entry = it.next();
+                        if (neededMonsters.remove(entry.first)) {
+                            completedMonsters.add(entry.first);
+                            it.remove();
+                            modifiedCopy = true;
+                        }
+                    }
+                    if (!modifiedCopy) {
+                        break;
+                    }
+                    availableCopies--;
+                    consumedFromStack++;
+                    if (!copyMonsters.isEmpty()) {
+                        String remStats = copyMonsters.stream()
+                                .map(m -> m.first + "," + m.second)
+                                .collect(Collectors.joining("|"));
+                        partialRemainingStats.add(remStats);
+                    }
+                }
+
+                if (consumedFromStack > 0) {
+                    inventoryChanged = true;
+                    if (availableCopies > 0) {
+                        stone.setQuantity(availableCopies);
+                        if (objectData != null) {
+                            objectData.update(stone);
+                        }
+                        if (p.isOnline()) {
+                            SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(p, stone);
+                        }
+                    } else {
+                        p.getItems().remove(stone.getGuid());
+                        World.world.removeGameObject(stone.getGuid());
+                        if (objectData != null) {
+                            objectData.delete(stone);
+                        }
+                        if (p.isOnline()) {
+                            SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(p, stone.getGuid());
+                        }
+                    }
+                    int fullyConsumed = consumedFromStack - partialRemainingStats.size();
+                    if (fullyConsumed > 0 && p.isOnline()) {
+                        SocketManager.GAME_SEND_Im_PACKET(p, "022;" + fullyConsumed + "~" + stone.getTemplate().getId());
+                    }
+                    for (String remStats : partialRemainingStats) {
+                        SoulStone partialStone = new SoulStone(1, stone.getTemplate().getId(), Constant.ITEM_POS_NO_EQUIPED, remStats);
+                        if (p.addItem(partialStone, false, false)) {
+                            World.world.addGameObject(partialStone);
+                        }
+                    }
                 }
             }
         }
 
-        if (consumedAny && p.isOnline()) {
+        if (inventoryChanged && p.isOnline()) {
             SocketManager.GAME_SEND_Ow_PACKET(p);
         }
 

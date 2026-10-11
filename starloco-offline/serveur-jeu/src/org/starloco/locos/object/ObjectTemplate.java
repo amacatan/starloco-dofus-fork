@@ -434,7 +434,7 @@ public class ObjectTemplate {
         } else if(getType() == Constant.ITEM_TYPE_CERTIF_MONTURE) {
             item = new GameObject(-1, getId(), qua, Constant.ITEM_POS_NO_EQUIPED, generateNewStatsFromTemplate(getStrTemplate(), useMax), getEffectTemplate(getStrTemplate()), new HashMap<>(), new HashMap<>(), 0);
         } else if (this.isFilledSoulStone()) {
-            return new SoulStone(qua, getId(), Constant.ITEM_POS_NO_EQUIPED, getStrTemplate());
+            return new SoulStone(qua, getId(), Constant.ITEM_POS_NO_EQUIPED, resolveSoulStoneStats());
         } else {
             if (getType() == Constant.ITEM_TYPE_OBJET_ELEVAGE) {
                 item = new GameObject(-1, getId(), qua, Constant.ITEM_POS_NO_EQUIPED, new Stats(false, null), new ArrayList<>(), new HashMap<>(), getStringResistance(getStrTemplate()), 0);
@@ -474,7 +474,7 @@ public class ObjectTemplate {
         } else if(getType() == Constant.ITEM_TYPE_CERTIF_MONTURE) {
             item = new GameObject(id, getId(), qua, Constant.ITEM_POS_NO_EQUIPED, generateNewStatsFromTemplate(getStrTemplate(), useMax), getEffectTemplate(getStrTemplate()), new HashMap<>(), new HashMap<>(), 0);
         } else if (this.isFilledSoulStone()) {
-            return new SoulStone(qua, getId(), Constant.ITEM_POS_NO_EQUIPED, getStrTemplate());
+            return new SoulStone(qua, getId(), Constant.ITEM_POS_NO_EQUIPED, resolveSoulStoneStats());
         } else {
             if (getType() == Constant.ITEM_TYPE_OBJET_ELEVAGE) {
                 item = new GameObject(id, getId(), qua, Constant.ITEM_POS_NO_EQUIPED, new Stats(false, null), new ArrayList<>(), new HashMap<>(), getStringResistance(getStrTemplate()), 0);
@@ -732,6 +732,37 @@ public class ObjectTemplate {
                 return false;
         }
         return !bannedObjects.contains(this.getId());
+    }
+
+
+    private static final int[] ARCHMONSTER_IDS = new int[]{2354, 2336, 2310, 2315, 2316, 2357, 2312, 2341, 2342, 2344, 2345, 2347, 2327, 2574, 2343, 2355, 2356, 2323, 2348, 2393, 2313, 2352, 2487, 2522, 2332, 2317, 2520, 2371, 2331, 2286, 2402, 2318, 2293, 2294, 2358, 2314, 2494, 2541, 2292, 2301, 2353, 2427, 2431, 2302, 2399, 2400, 2396, 2401, 2430, 2334, 2549, 2349, 2325, 2298, 2304, 2397, 2411, 2324, 2378, 2295, 2548, 2437, 2346, 2338, 2340, 2272, 2297, 2532, 2413, 2484, 2333, 2533, 2542, 2296, 2418, 2403, 2440, 2277, 2335, 2417, 2424, 2425, 2426, 2326, 2529, 2329, 2486, 2379, 2376, 2305, 2321, 2436, 2416, 2309, 2521, 2280, 2281, 2282, 2283, 2276, 2404, 2405, 2406, 2407, 2408, 2432, 2615, 2421, 2339, 2299, 2385, 2319, 2439, 2350, 2285, 2465, 2415, 2557, 2558, 2559, 2560, 2328, 2392, 2311, 2498, 2308, 2420, 2384, 2391, 2433, 2493, 2508, 2525, 2539, 2540, 2585, 2289, 2573, 2320, 2322, 2423, 2442, 2568, 2517, 2616, 2524, 2575, 2582, 2583, 2584, 2279, 2389, 2438, 2592, 2422, 2556, 2359, 2593, 2502, 2507, 2505, 2506, 2590, 2581, 2273, 2589, 2555, 2369, 2368, 2367, 2451, 2453, 2459, 2455, 2457, 2527, 2287, 2510, 2591, 2351, 2419, 2434, 2538, 2554, 2377, 2372, 2450, 2449, 2513, 2516, 2509, 2518, 2275, 2588, 2466, 2467, 2563, 2468, 2545, 2579, 2428, 2547, 2561, 2472, 2474, 2476, 2473, 2475, 2503, 2580, 2337, 2598, 2571, 2572, 2448, 2447, 2446, 2445, 2461, 2497, 2412, 2543, 2306, 2511, 2388, 2414, 2482, 2495, 2515, 2271, 2270, 2386, 2429, 2577, 2398, 2464, 2452, 2562, 2550, 2546, 2360, 2565, 2519, 2514, 2528, 2534, 2363, 2307, 2566, 2569, 2361, 2544, 2454, 2460, 2456, 2458, 2512, 2278, 2462, 2567, 2526, 2531, 2383, 2300, 2587, 2570, 2382, 2381, 2578, 2553, 2303, 2601, 2552, 2370, 2469, 2373, 2551, 2600, 2471, 2374, 2597, 2614, 2564, 2483, 2470, 2477};
+
+    private String resolveSoulStoneStats() {
+        String raw = getStrTemplate();
+        if (raw != null && !raw.isEmpty()) {
+            return raw;
+        }
+        if (getId() == 10418) {
+            List<Integer> pool = new ArrayList<>(ARCHMONSTER_IDS.length);
+            for (int id : ARCHMONSTER_IDS) {
+                pool.add(id);
+            }
+            Collections.shuffle(pool);
+            StringBuilder sb = new StringBuilder();
+            int count = Math.min(5, pool.size());
+            for (int i = 0; i < count; i++) {
+                int mobId = pool.get(i);
+                int level = 1;
+                org.starloco.locos.entity.monster.Monster m = World.world.getMonstre(mobId);
+                if (m != null && m.getGrades() != null && !m.getGrades().isEmpty()) {
+                    level = m.getGrades().values().iterator().next().getLevel();
+                }
+                if (sb.length() > 0) sb.append("|");
+                sb.append(mobId).append(",").append(level);
+            }
+            return sb.toString();
+        }
+        return raw != null ? raw : "";
     }
 
     public boolean isFilledSoulStone() {

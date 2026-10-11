@@ -25,15 +25,21 @@ import org.starloco.locos.kernel.Config;
 import org.starloco.locos.kernel.Constant;
 import org.starloco.locos.object.GameObject;
 import org.starloco.locos.object.ObjectTemplate;
+import org.starloco.locos.object.entity.SoulStone;
 import org.starloco.locos.quest.QuestProgress;
 import org.starloco.locos.script.DataScriptVM;
 import org.starloco.locos.script.ScriptVM;
 import org.starloco.locos.script.types.MetaTables;
 import org.starloco.locos.util.Pair;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class SPlayer extends DefaultUserdata<Player> {
     private static final ImmutableTable META_TABLE = MetaTables.MetaTable(MetaTables.ReflectIndexTable(SPlayer.class));
@@ -589,6 +595,69 @@ public class SPlayer extends DefaultUserdata<Player> {
         int itemID = args.nextInt();
         int quantity = args.nextInt();
         return p.removeItemByTemplateId(itemID, quantity, true);
+    }
+
+    @SuppressWarnings("unused")
+    private static Table consumeSoulStones(Player p, ArgumentIterator args) {
+        List<Integer> requestedMonsters = ScriptVM.intsFromLuaTable(args.nextOptionalTable(null));
+        if (requestedMonsters.isEmpty()) {
+            return ScriptVM.listOf(Stream.empty());
+        }
+
+        Set<Integer> neededMonsters = new LinkedHashSet<>(requestedMonsters);
+        List<Integer> completedMonsters = new ArrayList<>();
+        boolean consumedAny = false;
+
+        for (GameObject item : new ArrayList<>(p.getItems().values())) {
+            if (neededMonsters.isEmpty()) break;
+            if (item == null || item.getPosition() != Constant.ITEM_POS_NO_EQUIPED) continue;
+            if (!(item instanceof SoulStone)) continue;
+
+            SoulStone stone = (SoulStone) item;
+            int availableCopies = stone.getQuantity();
+            int consumedFromStack = 0;
+
+            while (availableCopies > 0 && !neededMonsters.isEmpty()) {
+                List<Integer> matchedInStone = stone.getMonsterIDs()
+                        .filter(neededMonsters::contains)
+                        .distinct()
+                        .collect(Collectors.toList());
+                if (matchedInStone.isEmpty()) {
+                    break;
+                }
+                for (Integer mobId : matchedInStone) {
+                    neededMonsters.remove(mobId);
+                    completedMonsters.add(mobId);
+                }
+                availableCopies--;
+                consumedFromStack++;
+            }
+
+            if (consumedFromStack > 0) {
+                consumedAny = true;
+                if (availableCopies > 0) {
+                    stone.setQuantity(availableCopies);
+                    if (p.isOnline()) {
+                        SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(p, stone);
+                    }
+                } else {
+                    p.getItems().remove(stone.getGuid());
+                    World.world.removeGameObject(stone.getGuid());
+                    if (p.isOnline()) {
+                        SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(p, stone.getGuid());
+                    }
+                }
+                if (p.isOnline()) {
+                    SocketManager.GAME_SEND_Im_PACKET(p, "022;" + consumedFromStack + "~" + stone.getTemplate().getId());
+                }
+            }
+        }
+
+        if (consumedAny && p.isOnline()) {
+            SocketManager.GAME_SEND_Ow_PACKET(p);
+        }
+
+        return ScriptVM.listOf(completedMonsters.stream());
     }
 
 

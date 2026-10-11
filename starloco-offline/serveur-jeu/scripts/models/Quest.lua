@@ -297,6 +297,40 @@ function Quest:tryCompleteBringItemObjectives(p, npcID)
     return true
 end
 
+---@param p Player
+---@param npcID number
+---@return boolean true if at least one soul objective was completed
+function Quest:tryCompleteBringSoulsObjectives(p, npcID)
+    local soulObjectivesByMonster = {}
+    local neededMonsters = {}
+    for _, obj in ipairs(self:uncompletedObjectives(p)) do
+        if obj.type == BringSoulsObjectiveType and obj.npcId == npcID then
+            if not soulObjectivesByMonster[obj.monsterId] then
+                soulObjectivesByMonster[obj.monsterId] = obj.id
+                table.insert(neededMonsters, obj.monsterId)
+            end
+        end
+    end
+
+    if #neededMonsters == 0 then return false end
+
+    local consumedMonsters = p:consumeSoulStones(neededMonsters)
+    if not consumedMonsters or #consumedMonsters == 0 then
+        return false
+    end
+
+    local completedObjIds = {}
+    for _, mobId in ipairs(consumedMonsters) do
+        local objId = soulObjectivesByMonster[mobId]
+        if objId then
+            table.insert(completedObjIds, objId)
+        end
+    end
+
+    if #completedObjIds == 0 then return false end
+    return self:completeObjectives(p, completedObjIds)
+end
+
 
 ---@param minLevel number
 ---@param questFinished number

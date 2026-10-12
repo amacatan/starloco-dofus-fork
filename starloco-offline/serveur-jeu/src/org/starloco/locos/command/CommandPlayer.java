@@ -59,6 +59,8 @@ public class CommandPlayer {
                 return commandInterval(player, msg);
             } else if (command(msg, "start") || command(msg, "astrub")) {
                 return commandAstrub(player, msg);
+            } else if (command(msg, "otomai") || command(msg, "otomaï")) {
+                return commandOtomai(player, msg);
             } else if (command(msg, "walkfast")) {
                 player.walkFast = !player.walkFast;
                 return true;
@@ -450,6 +452,25 @@ public class CommandPlayer {
         return true;
     }
 
+    private static boolean commandOtomai(Player player, String msg) {
+        int mapId = player.getCurMap().getId();
+        if (player.isInPrison() || player.cantTP() || player.getFight() != null)
+            return true;
+        player.teleport((short) 11242, 230);
+
+        final Party party = player.getParty();
+        if (party != null && party.getMaster() != null && party.getMaster().getName().equals(player.getName())) {
+            player.getParty().getPlayers().stream().filter(p -> party.isWithTheMaster(p, false, true)).forEach(slave -> {
+                if (slave.getCurMap().getId() == mapId) {
+                    if (!player.isInPrison() && !player.cantTP())
+                        if (player.getFight() == null)
+                            slave.teleport((short) 11242, 230);
+                }
+            });
+        }
+        return true;
+    }
+
     private static boolean commandVie(Player player, String msg) {
         if(player.getCurPdv() == player.getMaxPdv()){
             player.sendMessage(player.getLang().trans("command.commandplayer.vie.error"));
@@ -743,6 +764,7 @@ public class CommandPlayer {
         player.sendMessage("• <b>.help</b> - Zeigt diese Befehlsübersicht an.");
         player.sendMessage("• <b>.infos</b> - Server-Status, Uptime und Spielerzahlen.");
         player.sendMessage("• <b>.start</b> / <b>.astrub</b> - Teleportiert dich zurück nach Astrub.");
+        player.sendMessage("• <b>.otomai</b> - Teleportiert dich direkt zu Otomaï.");
         player.sendMessage("• <b>.savepos</b> - Speichert deine aktuelle Position.");
         player.sendMessage("• <b>.deblo</b> - Befreit dich, falls du auf einer Zelle feststeckst.");
         player.sendMessage("• <b>.group</b> - Lädt automatisch alle deine offenen Accounts in eine Gruppe ein.");

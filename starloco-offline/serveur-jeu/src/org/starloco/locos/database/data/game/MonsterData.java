@@ -37,7 +37,7 @@ public class MonsterData extends FunctionDAO<Monster> {
                     boolean capturable = result.getInt("capturable") == 1;
                     int aggroDistance = result.getInt("aggroDistance");
                     boolean isBoss = result.getInt("isBoss") == 1;
-                    boolean isArchMonster = result.getInt("isBoss") == 1;
+                    boolean isArchMonster = result.getInt("isArchmonster") == 1;
 
                     if (World.world.getMonstre(id) == null) {
                         World.world.addMobTemplate(id, new Monster(id, gfxID, align, colors, grades, spells, stats, statsInfos, pdvs, pts, inits, mK, MK, xp, IAType, capturable, aggroDistance, isBoss, isArchMonster));

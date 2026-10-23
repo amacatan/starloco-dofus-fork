@@ -43,6 +43,8 @@ public class Main {
                 Config.isRunning = false;
                 Main.fightAsBlocked = tradeAsBlocked = true;
 
+                WorldSave.cast(0);
+
                 if(Config.gameServer != null)
                     Config.gameServer.kickAll(true);
 

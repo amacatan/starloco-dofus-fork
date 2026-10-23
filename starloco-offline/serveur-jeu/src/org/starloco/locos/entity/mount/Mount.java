@@ -254,16 +254,17 @@ public class Mount {
 
 			SocketManager.GAME_SEND_Im_PACKET(player, "1111;" + offspring);
 			Mount father = World.world.getMountById(this.getCouple());
+			MountPark currentPark = mp != null ? mp : (player.getCurMap() != null ? player.getCurMap().getMountPark() : null);
 			for(int i = 0; i < offspring; i++) {
                 int color = Constant.colorToEtable(player, this, (father == null ? this : father));
 				Mount baby = new Mount(color, this, (father == null ? this : father));
-                player.getCurMap().getMountPark().getEtable().add(baby);
+                if (currentPark != null) currentPark.getEtable().add(baby);
 			}
 
             this.aumReproduction();
             this.setFecundatedDate(-1);
 
-            if (player.getCurMap().getMountPark().hasEtableFull(player.getId()))
+            if (currentPark != null && currentPark.hasEtableFull(player.getId()))
 				player.send("Im1105");
 			if(father != null && father.getSavage() == 1) {
                 ((MountData) DatabaseManager.get(MountData.class)).delete(father);
@@ -273,7 +274,7 @@ public class Mount {
                 ((MountData) DatabaseManager.get(MountData.class)).delete(this);
 				World.world.removeMount(this.getId());
 
-				mp.delRaising(this.getId());
+				if (currentPark != null) currentPark.delRaising(this.getId());
                	player.send("Im0112; " + this.getName());
 			}
 		} else if(actualHours >= time + 24 * 7) {

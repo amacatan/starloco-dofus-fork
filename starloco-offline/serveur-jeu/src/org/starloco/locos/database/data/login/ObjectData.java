@@ -38,7 +38,7 @@ public class ObjectData extends FunctionDAO<GameObject> {
     static final String CRUSHER_UPDATE_SOURCE_SQL =
             "UPDATE `world_objects` SET `quantity` = ? WHERE `id` = ? AND `quantity` = ? AND `template` = ? AND `position` = ?";
     static final String CRUSHER_DELETE_SOURCE_SQL =
-            "DELETE FROM `world_objects` WHERE `id` = ? AND `quantity` = ? AND `template` = ? AND `position` = ?";
+            "DELETE FROM `world_objects` WHERE `id` = ? AND `template` = ? AND `position` = ?";
     static final String CRUSHER_UPDATE_INVENTORY_SQL =
             "UPDATE `world_players` SET `objets` = ? WHERE `id` = ?";
 
@@ -412,10 +412,15 @@ public class ObjectData extends FunctionDAO<GameObject> {
                     if (debit == null || !found.add(guid)
                             || result.getInt("template")
                             != debit.source.getTemplate().getId()
-                            || result.getInt("quantity")
-                            != debit.originalQuantity
                             || result.getInt("position")
                             != debit.source.getPosition()) {
+                        return false;
+                    }
+                    if (debit.removesCompleteStack()) {
+                        if (result.getInt("quantity") <= 0) {
+                            return false;
+                        }
+                    } else if (result.getInt("quantity") != debit.originalQuantity) {
                         return false;
                     }
                 }
@@ -463,9 +468,8 @@ public class ObjectData extends FunctionDAO<GameObject> {
                 if (debit.removesCompleteStack()) {
                     statement = delete;
                     statement.setInt(1, debit.source.getGuid());
-                    statement.setInt(2, debit.originalQuantity);
-                    statement.setInt(3, debit.source.getTemplate().getId());
-                    statement.setInt(4, debit.source.getPosition());
+                    statement.setInt(2, debit.source.getTemplate().getId());
+                    statement.setInt(3, debit.source.getPosition());
                 } else {
                     statement = update;
                     statement.setInt(1, debit.getRemainingQuantity());

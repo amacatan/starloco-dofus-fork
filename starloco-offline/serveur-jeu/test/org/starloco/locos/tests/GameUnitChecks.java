@@ -101,6 +101,7 @@ public final class GameUnitChecks {
         DropDataChecks.run();
         ExtraMonsterDataChecks.run();
         WorldExtraMonsterChecks.run();
+        org.starloco.locos.entity.monster.MonsterGroupChecks.run();
         System.out.println("Game Java checks: OK");
     }
 

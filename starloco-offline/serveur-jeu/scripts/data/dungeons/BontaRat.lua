@@ -89,15 +89,15 @@ local group9 = {
 }
 
 local mapInfos = {
-    [10200] = {groupCell = 281, group = group1, winDest = {10201, 182}},
-    [10201] = {groupCell = 70, group = group2, winDest = {10202, 119}},
-    [10202] = {groupCell = 141, group = group3, winDest = {10203, 332}},
-    [10203] = {groupCell = 97, group = group4, winDest = {10204, 176}},
-    [10204] = {groupCell = 155, group = group5, winDest = {10205, 165}},
-    [10205] = {groupCell = 185, group = group6, winDest = {10210, 176}},
-    [10210] = {groupCell = 380, group = group7, winDest = {10211, 165}},
-    [10211] = {groupCell = 296, group = group8, winDest = {10212, 50}},
-    [10212] = {groupCell = 169, group = group9, winDest = {10213, 452}}
+    [10200] = {groupCell = 286, group = group1, winDest = {10201, 182}},
+    [10201] = {groupCell = 267, group = group2, winDest = {10202, 119}},
+    [10202] = {groupCell = 178, group = group3, winDest = {10203, 332}},
+    [10203] = {groupCell = 238, group = group4, winDest = {10204, 176}},
+    [10204] = {groupCell = 295, group = group5, winDest = {10205, 165}},
+    [10205] = {groupCell = 297, group = group6, winDest = {10210, 176}},
+    [10210] = {groupCell = 340, group = group7, winDest = {10211, 165}},
+    [10211] = {groupCell = 297, group = group8, winDest = {10212, 50}},
+    [10212] = {groupCell = 355, group = group9, winDest = {10213, 452}}
 }
 
 for k, v in pairs(mapInfos) do

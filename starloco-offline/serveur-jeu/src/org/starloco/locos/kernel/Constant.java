@@ -356,6 +356,7 @@ public class Constant {
     public static final int STATS_DATE = 805;
     public static final int STATS_NIVEAU = 962;
     public static final int STATS_NAME_DJ = 814;
+    public static final String KEYCHAIN_KEYS = "620,621,622,1ae4,1c8d,1c8e,1c8f,1c90,1d55,1d56,1d57,1d85,1ee4,1eee,1ef4,1ef6,1ef7,1f89,1fc7,1fcb,1fce,1fcf,1fdc,2073,2080,2096,2097,20f4,20f5,20f6,20f7,2161,22d5,230b,230c,230f,2311,241f,2420,2426,2cd2,2cd3";
     public static final int STATS_OWNER_1 = 987;//#4
     public static final int STATS_SIGNATURE = 988;
     public static final int ERR_STATS_XP = 1000;

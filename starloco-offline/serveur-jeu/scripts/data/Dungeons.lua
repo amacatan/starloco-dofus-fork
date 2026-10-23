@@ -64,18 +64,22 @@ function Dungeon:onTalkToGateKeeper(player, answer)
         local responses = {}
         if player:getItem(self.keyID, 1) then table.insert(responses, self.keyResponseID) end
         if self:hasKeyChain(player) then table.insert(responses, self.keychainResponseID) end
+        table.insert(responses, 5799)
         player:ask(self.questionID, responses)
-    elseif answer == self.keyResponseID then
+    elseif answer == self.keyResponseID or answer == 2803 then
         -- Use Key then teleport
         if player:consumeItem(self.keyID, 1) then
             player:teleport(self.tpDest[1], self.tpDest[2])
         end
-         player:endDialog()
+        player:endDialog()
     elseif answer == self.keychainResponseID then
         -- Use Keychain then teleport
         if self:useKeyChain(player) then
             player:teleport(self.tpDest[1], self.tpDest[2])
         end
+        player:endDialog()
+    elseif answer == 5799 then
+        player:teleportPartyToMe()
         player:endDialog()
     end
 end
@@ -95,12 +99,12 @@ BworkDungeon = Dungeon(8135, 3172, 6602, 2794, {9750, 351})
 ScaraleafDungeon = Dungeon(8139, 3179, 6602, 2947, {9775, 436})
 TofuDungeon = Dungeon(7918, 3175, 6602, 2797, {9521, 451})
 FieldDungeon = Dungeon(8143, 3178, 6602, 2802, {9768, 306})
-CanidaeDungeon = Dungeon(8156, 3177, 2801, 6616, {9645, 451})
+CanidaeDungeon = Dungeon(8156, 3177, 6616, 2801, {9645, 451})
 SoftOakDungeon = Dungeon(8436, 3276, 6602, 2930, {8714, 112})
 SandyDungeon = Dungeon(8437, 3289, 6602, 2944, {10156, 247})
 KoolichDungeon = Dungeon(7908, 3119, 6607, 2742, {8950, 408})
 BrakmarRatDungeon = Dungeon(8438, 3294, 6618, 2950, {10194, 450})
-BontaRatDungeon = Dungeon(8439, 3292, 6619, 2947, {10200, 50})
+BontaRatDungeon = Dungeon(8439, 3292, 6619, 2803, {10200, 50})
 IncarnamDungeon = Dungeon(8545, 3828, 3358, 3359, {10360, 364})
 BlopDungeon = Dungeon(9248, 5402, 6623, 4531, {11881, 120})
 RainbowBlopDungeon = Dungeon(9254, 5410, 6624, 4544, {11892, 436})

@@ -6,12 +6,16 @@ local dungeon = CracklerDungeon
 ---@param p Player
 ---@param answer number
 function npc:onTalk(p, answer)
-    if answer == 0 then p:ask(3162, {2780})
+    if answer == 0 then p:ask(3162, {2780, 5799})
+    elseif answer == 5799 then
+        p:teleportPartyToMe()
+        p:endDialog()
     elseif answer == 2780 then
         -- Check if p has item / keychain
         local responses = {}
         if p:getItem(dungeon.keyID, 1) then table.insert(responses, dungeon.keyResponseID) end
         if dungeon:hasKeyChain(p) then table.insert(responses, dungeon.keychainResponseID) end
+        table.insert(responses, 5799)
         p:ask(dungeon.questionID, responses)
     elseif answer == dungeon.keyResponseID then
         -- Use Key then teleport

@@ -44,8 +44,8 @@ map.allowedMobGrades = {
 -- '0;0;0;0;0;0;0' forbiddens -> capabilities ? Or script ?
 
 map.onMovementEnd = {
-    [392] = moveEndTeleport(1782, 390),
-    [454] = moveEndTeleport(1764, 34),
+    [392] = moveEndTeleport(1782, 390, 997, 4),
+    [454] = moveEndTeleport(1764, 34, 997, 6),
 }
 
 

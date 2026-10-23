@@ -45,7 +45,7 @@ map.allowedMobGrades = {
 
 map.onMovementEnd = {
     [19] = moveEndTeleport(1706, 439),
-    [189] = moveEndTeleport(1711, 216),
+    [189] = moveEndTeleport(1711, 216, 997, 2),
 }
 
 

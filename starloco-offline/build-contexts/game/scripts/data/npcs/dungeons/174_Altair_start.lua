@@ -11,7 +11,11 @@ function npc:onTalk(p, answer)
         if GobballDungeon:hasKeyChain(p) then table.insert(responses, 6602) end
         -- Heroic Gobball Dungeon challenge option (requires 100 Gobball Dungeon keys)
         table.insert(responses, 1922)
+        table.insert(responses, 5799)
         p:ask(660, responses)
+    elseif answer == 5799 then
+        p:teleportPartyToMe()
+        p:endDialog()
     elseif answer == 564 then
         -- Normal Gobball Dungeon (Key)
         if p:consumeItem(1568, 1) then

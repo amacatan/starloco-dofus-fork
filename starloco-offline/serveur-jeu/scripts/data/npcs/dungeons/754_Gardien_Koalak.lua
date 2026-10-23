@@ -16,6 +16,7 @@ function npc:onTalk(p, answer)
         local responses = {}
         if p:getItem(dungeon.keyID, 1) then table.insert(responses, dungeon.keyResponseID) end
         if dungeon:hasKeyChain(p) then table.insert(responses, dungeon.keychainResponseID) end
+        table.insert(responses, 5799)
         table.insert(responses, 2743)
         p:ask(dungeon.questionID, responses, "[name]")
     elseif answer == dungeon.keyResponseID then
@@ -28,6 +29,9 @@ function npc:onTalk(p, answer)
         p:endDialog()
     elseif answer == 2743 then
         p:ask(3210)
+    elseif answer == 5799 then
+        p:teleportPartyToMe()
+        p:endDialog()
     end
 end
 

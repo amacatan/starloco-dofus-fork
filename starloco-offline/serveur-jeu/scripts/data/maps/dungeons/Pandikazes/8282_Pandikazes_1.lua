@@ -10,7 +10,7 @@ local map = MapDef(
         125
 )
 
-map.positions = "bfbsbtbubHbIbJbWbXb_co|bnbBbCbQbRb5c2dedfdtdZebeceqereF"
+map.positions = "cAc2c3c4dsdtdudUdVdWekelemeO|aUbkblbmbObPbQcgchcicKcLcMdc"
 map.capabilities = 46
 
 

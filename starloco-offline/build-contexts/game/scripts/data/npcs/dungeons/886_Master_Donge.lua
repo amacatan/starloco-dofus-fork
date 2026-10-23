@@ -16,7 +16,7 @@ local function talkMapDungeonEntrance(p, answer)
     local hasDungeonKeys = p:getItem(dungeonKeyId) or hasKeyChainFor(p, dungeonKeyId)
 
     if answer == 0 then
-        local responses = hasDungeonKeys and {showKeyResponse, 3359} or {3359}
+        local responses = hasDungeonKeys and {showKeyResponse, 3359, 5799} or {3359, 5799}
         p:ask(3828, responses)
     elseif answer == showKeyResponse then
         if hasDungeonKeys then
@@ -32,6 +32,9 @@ local function talkMapDungeonEntrance(p, answer)
         end
     elseif answer == 3359 then
         p:teleport(10335, 267)
+        p:endDialog()
+    elseif answer == 5799 then
+        p:teleportPartyToMe()
         p:endDialog()
     end
 end

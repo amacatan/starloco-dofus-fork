@@ -12,7 +12,11 @@ function npc:onTalk(p, answer)
             if p:getItem(dungeon.keyID, 1) then table.insert(responses, dungeon.keyResponseID) end
             if dungeon:hasKeyChain(p) then table.insert(responses, dungeon.keychainResponseID) end
             table.insert(responses, 4586)
+            table.insert(responses, 5799)
             p:ask(dungeon.questionID, responses)
+        elseif answer == 5799 then
+            p:teleportPartyToMe()
+            p:endDialog()
         elseif answer == dungeon.keyResponseID then
             -- Use Key then teleport
             if p:consumeItem(dungeon.keyID, 1) then p:teleport(dungeon.tpDest[1], dungeon.tpDest[2]) end

@@ -542,6 +542,74 @@ public class SPlayer extends DefaultUserdata<Player> {
     }
 
     @SuppressWarnings("unused")
+    private static boolean hasParty(Player p) {
+        return p.getParty() != null;
+    }
+
+    @SuppressWarnings("unused")
+    private static boolean isPartyLeader(Player p) {
+        return p.getParty() != null && p.getParty().isChief(p.getId());
+    }
+
+    @SuppressWarnings("unused")
+    private static void sendMessage(Player p, ArgumentIterator args) {
+        String msg = args.nextString().toString();
+        String color = args.hasNext() ? args.nextString().toString() : "009900";
+        SocketManager.GAME_SEND_MESSAGE(p, msg, color);
+    }
+
+    @SuppressWarnings("unused")
+    private static int teleportPartyToMe(Player p) {
+        if (p.getParty() == null) {
+            SocketManager.GAME_SEND_MESSAGE(p, "Du bist in keiner Gruppe!", "B9121B");
+            return 0;
+        }
+        if (p.getFight() != null) return 0;
+
+        int count = 0;
+        int targetMap = p.getCurMap().getId();
+        int targetCell = p.getCurCell().getId();
+
+        for (Player member : p.getParty().getPlayers()) {
+            if (member != null && member != p && member.isOnline() && member.getFight() == null && !member.isInPrison() && !member.isGhost()) {
+                if (member.getCurMap() == null || member.getCurMap().getId() != targetMap || member.getCurCell().getId() != targetCell) {
+                    member.teleport(targetMap, targetCell);
+                    SocketManager.GAME_SEND_MESSAGE(member, "[Dungeon] " + p.getName() + " hat die Gruppe an den Dungeoneingang gerufen!", "009900");
+                    count++;
+                }
+            }
+        }
+        if (count > 0) {
+            SocketManager.GAME_SEND_MESSAGE(p, "[Dungeon] " + count + " Gruppenmitglied(er) wurden zu dir teleportiert.", "009900");
+        } else {
+            SocketManager.GAME_SEND_MESSAGE(p, "[Dungeon] Keine Gruppenmitglieder zum Teleportieren gefunden (bereits anwesend oder im Kampf).", "B9121B");
+        }
+        return count;
+    }
+
+    @SuppressWarnings("unused")
+    private static int teleportParty(Player p, ArgumentIterator args) {
+        int mapID = args.hasNext() ? args.nextInt() : p.getCurMap().getId();
+        int cellID = args.hasNext() ? args.nextInt() : p.getCurCell().getId();
+        if (p.getParty() == null) {
+            SocketManager.GAME_SEND_MESSAGE(p, "Du bist in keiner Gruppe!", "B9121B");
+            return 0;
+        }
+        if (p.getFight() != null) return 0;
+        int count = 0;
+        for (Player member : p.getParty().getPlayers()) {
+            if (member != null && member != p && member.isOnline() && member.getFight() == null && !member.isInPrison() && !member.isGhost()) {
+                if (member.getCurMap() == null || member.getCurMap().getId() != mapID || member.getCurCell().getId() != cellID) {
+                    member.teleport(mapID, cellID);
+                    SocketManager.GAME_SEND_MESSAGE(member, "[Dungeon] " + p.getName() + " hat die Gruppe teleportiert!", "009900");
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    @SuppressWarnings("unused")
     private static void compassTo(Player p, ArgumentIterator args) {
         int mapId = args.nextInt();
         GameMap map = World.world.getMap(mapId);

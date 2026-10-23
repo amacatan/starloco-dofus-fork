@@ -19,10 +19,10 @@ function npc:onTalk(p, answer)
         end
     elseif answer == 465 then p:ask(552, {471})
     elseif answer == 471 then
-        p:ask(558, 472)
+        p:ask(558, {472})
     elseif answer == 472 then
         p:ask(559)
-    elseif answer == 467 then
+    elseif answer == 467 or answer == 482 then
         p:ask(554)
     end
 end

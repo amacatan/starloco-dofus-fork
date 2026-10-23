@@ -14,7 +14,10 @@ function npc:onTalk(p, answer)
         local showKeyResponse = 3678
 
         if answer == 0 then
-            p:ask(4197, {3675})
+            p:ask(4197, {3675, 5799})
+        elseif answer == 5799 then
+            p:teleportPartyToMe()
+            p:endDialog()
         elseif answer == 3675 then
             p:ask(4198, {3676})
         elseif answer == 3676 then

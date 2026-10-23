@@ -6,12 +6,18 @@ local dungeon = TofuDungeon
 ---@param p Player
 ---@param answer number
 function npc:onTalk(p, answer)
-    if answer == 0 then p:ask(3174, {2796})
+    if answer == 0 then
+        local responses = {2796, 5799}
+        p:ask(3174, responses)
+    elseif answer == 5799 then
+        p:teleportPartyToMe()
+        p:endDialog()
     elseif answer == 2796 then
         -- Check if p has item / keychain
         local responses = {}
         if p:getItem(dungeon.keyID, 1) then table.insert(responses, dungeon.keyResponseID) end
         if dungeon:hasKeyChain(p) then table.insert(responses, dungeon.keychainResponseID) end
+        table.insert(responses, 5799)
         p:ask(dungeon.questionID, responses)
     elseif answer == dungeon.keyResponseID then
         -- Use Key then teleport

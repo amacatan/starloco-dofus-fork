@@ -24,7 +24,11 @@ function npc:onTalk(p, answer)
             if hasKeyChain then
                 table.insert(responses, showKeyResponse2)
             end
+            table.insert(responses, 5799)
             p:ask(4190, responses)
+        elseif answer == 5799 then
+            p:teleportPartyToMe()
+            p:endDialog()
         elseif answer == showKeyResponse or showKeyResponse2 then
             p:teleport(enterDungeonDest[1], enterDungeonDest[2])
             p:endDialog()

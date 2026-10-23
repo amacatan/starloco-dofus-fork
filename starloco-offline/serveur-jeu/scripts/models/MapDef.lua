@@ -121,9 +121,16 @@ end
 ---@param mapId number
 ---@param cellId number
 ---@return fun(MapDef, Map, Player)
-function moveEndTeleport(mapId, cellId)
+function moveEndTeleport(mapId, cellId, itemId, qty)
     ---@param p Player
     return function(md, m, p)
+        if itemId and qty and qty > 0 then
+            if not p:getItem(itemId, qty) then
+                p:sendMessage("Du benötigst " .. qty .. "x Noix de Kokoko, um diesen Weg zu passieren.", "B9121B")
+                return
+            end
+            p:consumeItem(itemId, qty)
+        end
         p:teleport(mapId, cellId)
     end
 end

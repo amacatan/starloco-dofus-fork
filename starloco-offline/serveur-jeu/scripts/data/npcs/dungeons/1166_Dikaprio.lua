@@ -25,10 +25,14 @@ function npc:onTalk(p, answer)
                 table.insert(responses, showKeyResponse) end
             if hasDungeonKeyChainAndArtifacts then
                 table.insert(responses, showKeyChainResponse) end
+            table.insert(responses, 5799)
             p:ask(2942, responses)
         else
-            p:ask(2945)
+            p:ask(2945, {5799})
         end
+    elseif answer == 5799 then
+        p:teleportPartyToMe()
+        p:endDialog()
     elseif answer == showKeyResponse and hasDungeonKeyAndArtifacts then
         local consumedAll = p:consumeItem(7373, 1) and
                 p:consumeItem(7374, 1) and

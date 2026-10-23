@@ -14,7 +14,10 @@ function npc:onTalk(p, answer)
         local showKeyResponse = 3682
 
         if answer == 0 then
-            p:ask(4203, {3681})
+            p:ask(4203, {3681, 5799})
+        elseif answer == 5799 then
+            p:teleportPartyToMe()
+            p:endDialog()
         elseif answer == 3681 then
             local responses = hasDungeonKey and {showKeyResponse} or {}
             p:ask(4204, responses)

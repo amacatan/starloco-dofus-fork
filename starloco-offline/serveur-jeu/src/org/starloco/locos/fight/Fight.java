@@ -4516,6 +4516,7 @@ public class Fight {
                 boolean isFirst = true;
                 int maxLvl = 0;
                 String stats = "";
+                int stoneTemplate = 7010;
 
                 for (Fighter fighter : loosers) {
                     if (fighter.isInvocation() || fighter.getInvocator() != null)
@@ -4524,14 +4525,20 @@ public class Fight {
                     isFirst = false;
                     if (fighter.getLvl() > maxLvl)
                         maxLvl = fighter.getLvl();
+                    if (fighter.getMob() != null && fighter.getMob().getTemplate() != null) {
+                        if (fighter.getMob().getTemplate().isArchMonster()) {
+                            stoneTemplate = 10418;
+                        } else if (fighter.getMob().getTemplate().isBoss() && stoneTemplate != 10418) {
+                            stoneTemplate = 10417;
+                        }
+                    }
                 }
 
                 winners.stream().filter(F -> !F.isInvocation() && F.haveState(Constant.ETAT_CAPT_AME)).forEach(F -> getCapturer().add(F));
 
                 if (!this.getCapturer().isEmpty() && !SoulStone.isInArenaMap(this.getMapOld().getId())) // S'il y a des captureurs
                 {
-                    // FIXME Change template based on content
-                    fullSoul = new SoulStone(1, 7010, Constant.ITEM_POS_NO_EQUIPED, stats); // Cr�e la pierre d'�me
+                    fullSoul = new SoulStone(1, stoneTemplate, Constant.ITEM_POS_NO_EQUIPED, stats); // Crée la pierre d'âme
                     for (int i = 0; i < this.getCapturer().size(); i++) {
                         try {
                             Fighter f = this.getCapturer().get(Formulas.getRandomValue(0, this.getCapturer().size() - 1)); // R�cup�re un captureur au hasard dans la liste

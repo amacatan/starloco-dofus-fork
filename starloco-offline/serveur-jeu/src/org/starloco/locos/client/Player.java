@@ -2556,6 +2556,10 @@ public class Player implements Scripted<SPlayer>, Actor {
             for (GameObject item : objects.values()) {
                 if (World.world.getConditionManager().stackIfSimilar(item, newItem, stack)) {
                     item.setQuantity(item.getQuantity() + newItem.getQuantity());
+                    ObjectData objectData = DatabaseManager.get(ObjectData.class);
+                    if (objectData != null) {
+                        objectData.update(item);
+                    }
                     if (isOnline) {
                         SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(this, item);
                         SocketManager.GAME_SEND_Ow_PACKET(this);
@@ -2591,6 +2595,10 @@ public class Player implements Scripted<SPlayer>, Actor {
                         && obj.getStats().isSameStats(objet.getStats())
                         && World.world.getConditionManager().stackIfSimilar(obj, objet, hasSimiler)) {
                     obj.setQuantity(obj.getQuantity() + objet.getQuantity());
+                    ObjectData objectData = DatabaseManager.get(ObjectData.class);
+                    if (objectData != null) {
+                        objectData.update(obj);
+                    }
                     SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(this, obj);
                     return true;
                 }
@@ -3763,6 +3771,18 @@ public class Player implements Scripted<SPlayer>, Actor {
                     return;
                 }
             }
+        }
+
+        try {
+            new ArrayList<>(park.getEtable()).stream()
+                    .filter(mount -> mount != null && mount.getOwner() == this.getId())
+                    .forEach(mount -> mount.checkBaby(this, park));
+            new ArrayList<>(park.getListOfRaising()).stream()
+                    .map(World.world::getMountById)
+                    .filter(mount -> mount != null && mount.getOwner() == this.getId())
+                    .forEach(mount -> mount.checkBaby(this, park));
+        } catch (Exception e) {
+            e.printStackTrace();
         }
 
         this.setExchangeAction(new ExchangeAction<>(ExchangeAction.IN_MOUNTPARK, park));

@@ -86,6 +86,22 @@ q470.isRepeatable = true
 ---@field doploon number
 ---@field certificate number
 
+
+local classSpells = {
+    [1]  = {spell=10508, spellId=422}, -- Feca (Mise en Garde)
+    [2]  = {spell=9916,  spellId=420}, -- Osamodas (Laisse spirituelle)
+    [3]  = {spell=10507, spellId=425}, -- Enutrof (Retraite anticipee)
+    [4]  = {spell=6966,  spellId=416}, -- Sram (Poisse)
+    [5]  = {spell=10513, spellId=424}, -- Xelor (Raulebaque)
+    [6]  = {spell=6664,  spellId=412}, -- Ecaflip (Felintion)
+    [7]  = {spell=10509, spellId=427}, -- Eniripsa (Mot Lotof)
+    [8]  = {spell=731,   spellId=410}, -- Iop (Brokle)
+    [9]  = {spell=10506, spellId=418}, -- Cra (Fleche de dispersion)
+    [10] = {spell=10512, spellId=426}, -- Sadida (Arbre de vie)
+    [11] = {spell=10511, spellId=421}, -- Sacrieur (Douleur partagee)
+    [12] = {spell=10510, spellId=423}, -- Pandawa (Ivresse)
+}
+
 ---@type table<DoppleInfo>
 local dopples = {
     -- Panda
@@ -96,6 +112,8 @@ local dopples = {
         dialog = {init=2851, info=6757, train=6429, trade=6598, classBang=6778},
         doploon = 10309,
         certificate = 10296,
+        spell = 10510,
+        spellId = 423,
     },
     -- Enu
     {
@@ -105,6 +123,8 @@ local dopples = {
         dialog = {init=1764, info=1417, train=172, trade=6752, classBang=6774},
         doploon = 10305,
         certificate = 10292,
+        spell = 10507,
+        spellId = 425,
     },
     --Eca
     {
@@ -114,6 +134,8 @@ local dopples = {
         dialog = {init=1772, info=1425, train=1515, trade=6750, classBang=6769},
         doploon = 10303,
         certificate = 10290,
+        spell = 6664,
+        spellId = 412,
     },
     -- Iop
     {
@@ -123,6 +145,8 @@ local dopples = {
         dialog = {init=1771, info=1424, train=1559, trade=6754, classBang=6776},
         doploon = 10307,
         certificate = 10294,
+        spell = 731,
+        spellId = 410,
     },
     -- Osa
     {
@@ -132,6 +156,8 @@ local dopples = {
         dialog = {init=1766, info=1418, train=1485, trade=6755, classBang=6777},
         doploon = 10308,
         certificate = 10295,
+        spell = 9916,
+        spellId = 420,
     },
     -- Eni
     {
@@ -141,6 +167,8 @@ local dopples = {
         dialog = {init=1768, info=1535, train=1559, trade=6751, classBang=6773},
         doploon = 10304,
         certificate = 10291,
+        spell = 10509,
+        spellId = 427,
     },
     --Sacri
     {
@@ -150,6 +178,8 @@ local dopples = {
         dialog = {init=1799, info=1519, train=1520, trade=6758, classBang=6779},
         doploon = 10310,
         certificate = 10297,
+        spell = 10511,
+        spellId = 421,
     },
     -- Sadi
     {
@@ -159,6 +189,8 @@ local dopples = {
         dialog = {init=1770, info=1422, train=1581, trade=6759, classBang=6780},
         doploon = 10311,
         certificate = 10298,
+        spell = 10512,
+        spellId = 426,
     },
     -- Feca
     {
@@ -168,6 +200,8 @@ local dopples = {
         dialog = {init=1769, info=1420, train=216, trade=6753, classBang=6775},
         doploon = 10306,
         certificate = 10293,
+        spell = 10508,
+        spellId = 422,
     },
     --Cra
     {
@@ -177,6 +211,8 @@ local dopples = {
         dialog = {init=1767, info=1419, train=1509, trade=6697, classBang=6772},
         doploon = 10302,
         certificate = 10289,
+        spell = 10506,
+        spellId = 418,
     },
     --Xelor
     {
@@ -186,6 +222,8 @@ local dopples = {
         dialog = {init=1758, info=168, train=1415, trade=6761, classBang=6782},
         doploon = 10313,
         certificate = 10300,
+        spell = 10513,
+        spellId = 424,
     },
     --Sram
     {
@@ -195,6 +233,8 @@ local dopples = {
         dialog = {init=1773, info=1426, train=1575, trade=6760, classBang=6781},
         doploon = 10312,
         certificate = 10299,
+        spell = 6966,
+        spellId = 416,
     },
 }
 
@@ -215,13 +255,45 @@ local function makeTradeMenu(info)
     local scrollSizeRID = {7356, 7357, 7358, 7359} -- little/medium/big/powerful
     local scrollStatRID = {7364, 7362, 7360, 7365, 7363, 7361} -- WIS / CHA / AGI / VIT / STR / INT
     local classDoploonRID = {7395, 7396} -- each / this temple
-
+    local keyringRID = 6701
+    local spellRID = 6699
 
     return function(p, answer)
         if answer == info.dialog.trade then
-            local responses = {exitRID, scrollRID}
+            local responses = {exitRID, scrollRID, keyringRID, spellRID}
 
             p:ask(7108, responses)
+        elseif answer == keyringRID then
+            if p:getItem(10207, 1) then
+                p:sendMessage("Tu possèdes déjà un Trousseau de clef !")
+                p:endDialog()
+                return true
+            end
+            if not p:consumeItem(info.doploon, 1) then
+                p:sendMessage("Tu n'as pas assez de doplons.")
+                p:endDialog()
+                return true
+            end
+            p:addItem(10207, 1)
+            p:sendMessage("Tu as reçu un Trousseau de clefs.")
+            p:endDialog()
+            return true
+        elseif answer == spellRID then
+            local sp = classSpells[p:breed()] or {spell = info.spell, spellId = info.spellId}
+            if p:spellLevel(sp.spellId) > 0 then
+                p:sendMessage("Tu as déjà appris ce sort !")
+                p:endDialog()
+                return true
+            end
+            if not p:consumeItem(info.doploon, 1) then
+                p:sendMessage("Tu n'as pas assez de doplons.")
+                p:endDialog()
+                return true
+            end
+            p:addItem(sp.spell, 1)
+            p:sendMessage("Tu as reçu le parchemin de ton sort spécial.")
+            p:endDialog()
+            return true
         elseif answer == scrollRID then p:ask(7510, scrollSizeRID)
         elseif table.contains(scrollSizeRID, answer) then
             p:setCtxVal(ctxScrollSize, answer)
@@ -304,6 +376,20 @@ local createNPC = function(info)
     npc.onTalk = onTalkDoppleMaster(info)
     npc.quests = {info.quest.id}
     npc.sales = {}
+
+    -- Trousseau de clefs (1 Doplon)
+    table.insert(npc.sales, {item = 10207, price = 1, currency = info.doploon})
+
+    -- Sort special de classe (ce temple) (1 Doplon)
+    table.insert(npc.sales, {item = info.spell, price = 1, currency = info.doploon})
+
+    -- Tous les autres sorts de classe (1 Doplon)
+    local allClassSpells = {10508, 9916, 10507, 6966, 10513, 6664, 10509, 731, 10506, 10512, 10511, 10510}
+    for _, sp in ipairs(allClassSpells) do
+        if sp ~= info.spell then
+            table.insert(npc.sales, {item = sp, price = 1, currency = info.doploon})
+        end
+    end
 
     for _, s in ipairs(doploonSales) do
         table.insert(npc.sales, {item=s.item, price=s.price, currency=info.doploon})

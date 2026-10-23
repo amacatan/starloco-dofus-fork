@@ -33,6 +33,7 @@ public class Config {
     public static boolean voteEnabled = false;
     public static String voteUrl = "";
     public static int dailyQuestReward = 50;
+    public static int dailyQuestResetHour = 12;
     public static int voteReward = 50;
     public static int voteCooldown = 7200;
 
@@ -121,6 +122,7 @@ public class Config {
                 Config.serverWebUrl = properties.getProperty("system.server.web.url", "http://10.0.60.110/new/");
                 Config.dailyQuestEnabled = Boolean.parseBoolean(properties.getProperty("system.server.daily.enabled", "true"));
                 Config.dailyQuestReward = Integer.parseInt(properties.getProperty("system.server.daily.reward", "50"));
+                Config.dailyQuestResetHour = Math.max(0, Math.min(23, Integer.parseInt(properties.getProperty("system.server.daily.reset.hour", "12"))));
                 Config.voteEnabled = Boolean.parseBoolean(properties.getProperty("system.server.vote.enabled", "false"));
                 Config.voteUrl = properties.getProperty("system.server.vote.url", "");
                 Config.voteReward = Integer.parseInt(properties.getProperty("system.server.vote.reward", "50"));

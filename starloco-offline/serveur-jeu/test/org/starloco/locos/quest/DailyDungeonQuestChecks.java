@@ -61,7 +61,7 @@ public final class DailyDungeonQuestChecks {
         check(boss != null, "Current daily boss must not be null");
         check(DailyDungeonQuest.isTodayBoss(boss.getMonsterId()), "isTodayBoss must return true for current boss");
 
-        long epochDay = LocalDate.now(ZoneId.systemDefault()).toEpochDay();
+        long epochDay = DailyDungeonQuest.getCurrentQuestDate().toEpochDay();
         int expectedIndex = (int) Math.floorMod(epochDay, DailyDungeonQuest.getBossPool().size());
         DailyDungeonQuest.DailyBoss expectedBoss = DailyDungeonQuest.getBossPool().get(expectedIndex);
         check(boss.getMonsterId() == expectedBoss.getMonsterId(), "Boss ID must match calculated rotation");
@@ -80,12 +80,12 @@ public final class DailyDungeonQuestChecks {
         check(!acc.hasCompletedDailyBossToday(), "Fresh account must not have completed daily boss today");
 
         // Set to today's date
-        String today = LocalDate.now(ZoneId.systemDefault()).toString();
+        String today = DailyDungeonQuest.getCurrentQuestDate().toString();
         acc.setDailyQuestDate(today);
         check(acc.hasCompletedDailyBossToday(), "Account with today's date must be completed");
 
         // Set to yesterday's date
-        String yesterday = LocalDate.now(ZoneId.systemDefault()).minusDays(2).toString();
+        String yesterday = DailyDungeonQuest.getCurrentQuestDate().minusDays(2).toString();
         acc.setDailyQuestDate(yesterday);
         check(!acc.hasCompletedDailyBossToday(), "Account with 2-day-old date must not be completed today");
     }

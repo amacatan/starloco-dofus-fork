@@ -5,14 +5,14 @@
     <rcount value="10"/>
 
     <conf name="En ligne">
-        <connserver name="StarLoco local" ip="192.168.56.101" port="450"/>
+        <connserver name="StarLoco Retro" ip="10.0.60.110" port="450"/>
         <databank id="0">
-            <dataserver url="http://192.168.56.101/" priority="4"/>
+            <dataserver url="http://10.0.60.110/" priority="4"/>
             <dataserver url="data/" type="local" priority="3"/>
             <dataserver url="http://dofusretro.cdn.ankama.com/" priority="1"/>
         </databank>
         <databank id="1">
-            <dataserver url="http://192.168.56.101/" priority="4"/>
+            <dataserver url="http://10.0.60.110/" priority="4"/>
             <dataserver url="data/" type="local" priority="3"/>
             <dataserver url="http://dofusretro.cdn.ankama.com/ephemeris2releasebucket/" priority="1"/>
         </databank>

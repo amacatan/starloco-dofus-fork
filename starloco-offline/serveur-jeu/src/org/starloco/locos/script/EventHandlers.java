@@ -61,4 +61,12 @@ public class EventHandlers extends DefaultTable {
     public void onDocQuestHref(Player player, int docID, int questID) {
         callPlayerHandler("onDocQuestHref", player.scripted(), docID, questID);
     }
+
+    public java.util.List<Integer> getArchmonsterCandidates(Player player) {
+        Object[] ret = callPlayerHandler("getArchmonsterCandidates", player.scripted());
+        if (ret == null || ret.length == 0 || !(ret[0] instanceof Table)) {
+            return java.util.Collections.emptyList();
+        }
+        return ScriptVM.intsFromLuaTable((Table) ret[0]);
+    }
 }

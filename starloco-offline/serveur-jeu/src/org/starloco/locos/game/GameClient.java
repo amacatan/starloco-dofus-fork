@@ -690,19 +690,23 @@ public class GameClient {
             for (String object : gifts.split(";")) {
                 if(object.isEmpty()) continue;
                 int id = Integer.parseInt(object.split(",")[0]), qua = Integer.parseInt(object.split(",")[1]);
-                ObjectTemplate template = World.world.getObjTemplate(id);
+                int displayId = (id >= 15014 && id <= 15019) ? getRepresentativeScrollId(id) : id;
+                ObjectTemplate template = World.world.getObjTemplate(displayId);
                 if(template != null) {
+                    String previewStats = formatGiftPreviewStats(template);
                     if (data.isEmpty()) {
-                        data = "1~" + Integer.toString(id, 16) + "~" + Integer.toString(qua, 16) + "~~" + template.getStrTemplate();
+                        data = "1~" + Integer.toString(displayId, 16) + "~" + Integer.toString(qua, 16) + "~~" + previewStats;
                     } else {
-                        data += ";1~" + Integer.toString(id, 16) + "~" + Integer.toString(qua, 16) + "~~" + template.getStrTemplate();
+                        data += ";1~" + Integer.toString(displayId, 16) + "~" + Integer.toString(qua, 16) + "~~" + previewStats;
                     }
-                    if (item == -1) item = id;
+                    if (item == -1) item = displayId;
                 } else {
                     System.err.println("ERROR BOUTIQUE TEMPLATE OBJECT NOT FOUND : " + id);
                 }
             }
-            SocketManager.GAME_SEND_Ag_PACKET(this, item, data);
+            if (item != -1 && !data.isEmpty()) {
+                SocketManager.GAME_SEND_Ag_PACKET(this, item, data);
+            }
         }
     }
 
@@ -720,53 +724,147 @@ public class GameClient {
         if (gifts.isEmpty())
             return;
 
+        List<Integer> objNeedAttach = Arrays.asList(26001, 26002, 26003, 26004, 26005);
         for (String data : gifts.split(";")) {
             if(data.isEmpty()) continue;
             String[] split = data.split(",");
             int id = Integer.parseInt(split[0]);
+            int qua = Integer.parseInt(split[1]), jp = Integer.parseInt(split[2]);
 
-            if (id == template) {
-                int qua = Integer.parseInt(split[1]), jp = Integer.parseInt(split[2]);
-                GameObject obj;
-
-                List<Integer> objNeedAttach = Arrays.asList(26001, 26002, 26003, 26004, 26005);
-                if (qua == 1) {
-                    obj = World.world.getObjTemplate(template).createNewItem(qua, (jp == 1));
-                    if (objNeedAttach.contains(obj.getTemplate().getId()))
-                        obj.attachToPlayer(player);
-                    if (player.addItem(obj, true, false))
+            if (id >= 15014 && id <= 15019) {
+                deliverScrollPack(player, id);
+            } else if (id == 10418 || template == 10418) {
+                GameObject obj = createArchmonsterSoulStone(player, 5);
+                if (obj != null) {
+                    if (player.addItem(obj, true, true))
                         World.world.addGameObject(obj);
-                    if(obj.getTemplate().getType() == Constant.ITEM_TYPE_CERTIF_MONTURE)
-                        obj.setMountStats(player, null, true).setToMax();
-                    String str1 = id + "," + qua + "," + jp, str2 = id + "," + qua + "," + jp + ";", str3 = ";" + id + "," + qua + "," + jp;
-
-                    gifts = gifts.replace(str2, "").replace(str3, "").replace(str1, "");
-                } else {
-                    obj = World.world.getObjTemplate(template).createNewItem(1, (jp == 1));
-                    if (objNeedAttach.contains(obj.getTemplate().getId()))
-                        obj.attachToPlayer(player);
-                    if (player.addItem(obj, true, false))
-                        World.world.addGameObject(obj);
-                    if(obj.getTemplate().getType() == Constant.ITEM_TYPE_CERTIF_MONTURE)
-                        obj.setMountStats(player, null, true).setToMax();
-
-                    String str1 = id + "," + qua + "," + jp, str2 = id + "," + qua + "," + jp + ";", str3 = ";" + id + "," + qua + "," + jp;
-                    String cstr1 = id + "," + (qua - 1) + "," + jp, cstr2 = id + "," + (qua - 1) + "," + jp + ";", cstr3 = ";" + id + "," + (qua - 1) + "," + jp;
-
-                    gifts = gifts.replace(str2, cstr2).replace(str3, cstr3).replace(str1, cstr1);
                 }
-                DatabaseManager.get(GiftData.class).update(new Pair<>(this.account, gifts));
+            } else {
+                ObjectTemplate tpl = World.world.getObjTemplate(id);
+                if (tpl != null) {
+                    GameObject obj = tpl.createNewItem(qua, (jp == 1));
+                    if (obj != null) {
+                        if (objNeedAttach.contains(id))
+                            obj.attachToPlayer(player);
+                        if (player.addItem(obj, true, true))
+                            World.world.addGameObject(obj);
+                        if(obj.getTemplate().getType() == Constant.ITEM_TYPE_CERTIF_MONTURE)
+                            obj.setMountStats(player, null, true).setToMax();
+                    }
+                }
             }
         }
 
+        DatabaseManager.get(GiftData.class).update(new Pair<>(this.account, ""));
         DatabaseManager.get(PlayerData.class).update(player);
+        player.send("AG");
+    }
 
-        if (gifts.isEmpty())
-            player.send("AG");
-        else {
-            this.getGifts("");
-            player.send("AG");
+
+
+    private static int getRepresentativeScrollId(int packId) {
+        switch (packId) {
+            case 15014: return 810; // Puissant Parchemin de Vitalite
+            case 15015: return 805; // Puissant Parchemin de Sagesse
+            case 15016: return 797; // Puissant Parchemin de Force
+            case 15017: return 817; // Puissant Parchemin d'Intelligence
+            case 15018: return 814; // Puissant Parchemin de Chance
+            case 15019: return 801; // Puissant Parchemin d'Agilite
+            default: return 797;
         }
+    }
+
+    private void deliverScrollPack(Player player, int packId) {
+        int[][] bundles = {
+            {806, 25, 807, 25, 808, 29, 810, 11}, // 15014 Vita
+            {802, 25, 803, 25, 804, 29, 805, 11}, // 15015 Sage
+            {683, 25, 795, 25, 796, 29, 797, 11}, // 15016 Force
+            {686, 25, 815, 25, 816, 29, 817, 11}, // 15017 Intel
+            {809, 25, 811, 25, 812, 29, 814, 11}, // 15018 Chance
+            {798, 25, 799, 25, 800, 29, 801, 11}  // 15019 Agi
+        };
+        int index = packId - 15014;
+        if (index >= 0 && index < bundles.length) {
+            int[] bundle = bundles[index];
+            for (int i = 0; i < bundle.length; i += 2) {
+                int tId = bundle[i];
+                int qty = bundle[i + 1];
+                ObjectTemplate tpl = World.world.getObjTemplate(tId);
+                if (tpl != null) {
+                    GameObject item = tpl.createNewItem(qty, true);
+                    if (item != null && player.addItem(item, true, true)) {
+                        World.world.addGameObject(item);
+                    }
+                }
+            }
+        }
+    }
+
+    private String formatGiftPreviewStats(ObjectTemplate template) {
+        String raw = template.getStrTemplate();
+        if (raw == null || raw.isEmpty()) {
+            return "";
+        }
+        if (template.isFilledSoulStone() && !raw.contains("#")) {
+            StringBuilder encoded = new StringBuilder();
+            for (String part : raw.split("\\|")) {
+                if (part.isEmpty()) continue;
+                try {
+                    int mobId = Integer.parseInt(part.split(",")[0]);
+                    if (encoded.length() > 0) encoded.append(",");
+                    encoded.append("26f####").append(Integer.toString(mobId, 16));
+                } catch (Exception ignored) {
+                }
+            }
+            return encoded.toString();
+        }
+        return raw;
+    }
+
+    private GameObject createArchmonsterSoulStone(Player player, int count) {
+        Set<Integer> ownedMonsters = new HashSet<>();
+        for (GameObject item : player.getItems().values()) {
+            if (item instanceof SoulStone) {
+                ((SoulStone) item).getMonsterIDs().forEach(ownedMonsters::add);
+            }
+        }
+        if (player.getAccount() != null && player.getAccount().getBank() != null) {
+            for (GameObject item : player.getAccount().getBank()) {
+                if (item instanceof SoulStone) {
+                    ((SoulStone) item).getMonsterIDs().forEach(ownedMonsters::add);
+                }
+            }
+        }
+
+        List<Integer> candidates = DataScriptVM.getInstance().handlers.getArchmonsterCandidates(player);
+        List<Integer> chosen = new ArrayList<>();
+        for (Integer mobId : candidates) {
+            if (chosen.size() >= count) break;
+            if (!ownedMonsters.contains(mobId) && !chosen.contains(mobId)) {
+                chosen.add(mobId);
+            }
+        }
+        if (chosen.size() < count) {
+            for (Integer mobId : candidates) {
+                if (chosen.size() >= count) break;
+                if (!chosen.contains(mobId)) {
+                    chosen.add(mobId);
+                }
+            }
+        }
+
+        StringBuilder stats = new StringBuilder();
+        for (Integer mobId : chosen) {
+            int level = 1;
+            org.starloco.locos.entity.monster.Monster monster = World.world.getMonstre(mobId);
+            if (monster != null && monster.getGrades() != null && !monster.getGrades().isEmpty()) {
+                level = monster.getGrades().values().iterator().next().getLevel();
+            }
+            if (stats.length() > 0) stats.append("|");
+            stats.append(mobId).append(",").append(level);
+        }
+
+        return new SoulStone(1, 10418, Constant.ITEM_POS_NO_EQUIPED, stats.toString());
     }
 
     private void sendIdentity(String packet) {}

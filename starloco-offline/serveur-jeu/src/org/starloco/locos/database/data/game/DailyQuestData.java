@@ -14,8 +14,13 @@ public class DailyQuestData extends FunctionDAO<Object> {
     }
 
     public int getOverrideMonsterId() {
+        return getOverrideMonsterId(org.starloco.locos.quest.DailyDungeonQuest.getCurrentQuestDate().toString());
+    }
+
+    public int getOverrideMonsterId(String questDate) {
         try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement("SELECT monster_id FROM " + getTableName() + " WHERE quest_date = CURDATE()")) {
+             PreparedStatement stmt = conn.prepareStatement("SELECT monster_id FROM " + getTableName() + " WHERE quest_date = ?")) {
+            stmt.setString(1, questDate);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return rs.getInt("monster_id");

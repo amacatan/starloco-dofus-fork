@@ -106,3 +106,57 @@ Handlers.players.onDocQuestHref = function(player, docID, questID)
     print("4")
     return true
 end
+
+
+---@param player Player
+---@return number[]
+Handlers.players.getArchmonsterCandidates = function(player)
+    local quest = QUESTS[439]
+    if not quest then
+        return {}
+    end
+
+    local currentStep = player:_currentStep(439)
+    local startStep = 866
+    if currentStep and currentStep >= 866 and currentStep <= 880 then
+        startStep = currentStep
+    end
+
+    local candidates = {}
+    local seen = {}
+
+    local function addStepObjectives(stepId, onlyUncompleted)
+        local step = QUEST_STEPS[stepId]
+        if not step then return end
+        local stepMobs = {}
+        for _, obj in ipairs(step:ObjectivesForPlayer(player)) do
+            if obj.type == BringSoulsObjectiveType and obj.monsterId then
+                local completed = player:_hasCompletedObjective(439, obj.id)
+                if (not onlyUncompleted or not completed) and not seen[obj.monsterId] then
+                    seen[obj.monsterId] = true
+                    table.insert(stepMobs, obj.monsterId)
+                end
+            end
+        end
+        -- Shuffle within the same step so each stone feels random while strictly targeting the active step
+        for i = #stepMobs, 2, -1 do
+            local j = math.random(1, i)
+            stepMobs[i], stepMobs[j] = stepMobs[j], stepMobs[i]
+        end
+        for _, mobId in ipairs(stepMobs) do
+            table.insert(candidates, mobId)
+        end
+    end
+
+    for stepId = startStep, 880 do
+        addStepObjectives(stepId, true)
+    end
+    for stepId = 866, startStep - 1 do
+        addStepObjectives(stepId, true)
+    end
+    for stepId = 866, 880 do
+        addStepObjectives(stepId, false)
+    end
+
+    return candidates
+end

@@ -553,15 +553,15 @@ public class Account {
     public boolean hasCompletedDailyBossToday() {
         if (this.dailyQuestDate == null || this.dailyQuestDate.isEmpty()) return false;
         try {
-            java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
-            return today.toString().equals(this.dailyQuestDate);
+            String today = org.starloco.locos.quest.DailyDungeonQuest.getCurrentQuestDate().toString();
+            return today.equals(this.dailyQuestDate);
         } catch (Exception e) {
             return false;
         }
     }
 
     public void recordDailyBossCompletion(long time, int points) {
-        String today = java.time.LocalDate.now(java.time.ZoneId.systemDefault()).toString();
+        String today = org.starloco.locos.quest.DailyDungeonQuest.getCurrentQuestDate().toString();
         this.dailyQuestDate = today;
         DatabaseManager.get(AccountData.class).recordDailyBossCompletion(this, today, points);
     }

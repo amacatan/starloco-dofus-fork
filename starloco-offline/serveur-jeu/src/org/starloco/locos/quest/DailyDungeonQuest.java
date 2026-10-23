@@ -10,6 +10,8 @@ import org.starloco.locos.database.data.game.DailyQuestData;
 import org.starloco.locos.fight.Fighter;
 import org.starloco.locos.lang.LangEnum;
 
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -193,12 +195,21 @@ public class DailyDungeonQuest {
         return Config.dailyQuestEnabled;
     }
 
+    public static int getResetHour() {
+        return Math.max(0, Math.min(23, Config.dailyQuestResetHour));
+    }
+
+    public static LocalDate getCurrentQuestDate() {
+        return LocalDateTime.now(ZoneId.systemDefault()).minusHours(getResetHour()).toLocalDate();
+    }
+
     public static DailyBoss getCurrentBoss() {
+        LocalDate questDate = getCurrentQuestDate();
         if (Config.isRunning) {
             try {
                 DailyQuestData dqd = DatabaseManager.get(DailyQuestData.class);
                 if (dqd != null) {
-                    int overrideMonsterId = dqd.getOverrideMonsterId();
+                    int overrideMonsterId = dqd.getOverrideMonsterId(questDate.toString());
                     if (overrideMonsterId > 0) {
                         for (DailyBoss b : BOSS_POOL) {
                             if (b.getMonsterId() == overrideMonsterId) {
@@ -210,8 +221,8 @@ public class DailyDungeonQuest {
             } catch (Throwable ignored) {}
         }
 
-        long epochDay = LocalDate.now(ZoneId.systemDefault()).toEpochDay();
-        int index = (int) Math.floorMod(epochDay, BOSS_POOL.size());
+        long epochDay = questDate.toEpochDay();
+        int index = getShuffledIndex(epochDay, BOSS_POOL.size());
         return BOSS_POOL.get(index);
     }
 
@@ -225,8 +236,11 @@ public class DailyDungeonQuest {
 
     public static String getRemainingTimeString(LangEnum lang) {
         LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
-        LocalDateTime midnight = now.toLocalDate().plusDays(1).atStartOfDay();
-        Duration d = Duration.between(now, midnight);
+        LocalDateTime nextReset = now.toLocalDate().atTime(getResetHour(), 0);
+        if (!now.isBefore(nextReset)) {
+            nextReset = nextReset.plusDays(1);
+        }
+        Duration d = Duration.between(now, nextReset);
 
         long hours = d.toHours();
         long minutes = d.toMinutes() % 60;
@@ -375,5 +389,44 @@ public class DailyDungeonQuest {
             }
             player.sendMessage(" ");
         }
+    }
+
+    public static int getShuffledIndex(long epochDay, int poolSize) {
+        if (poolSize <= 1) return 0;
+        long cycle = Math.floorDiv(epochDay, poolSize);
+        int day = (int) Math.floorMod(epochDay, poolSize);
+
+        List<Integer> order = getCyclePermutation(cycle, poolSize);
+        List<Integer> prevOrder = getCyclePermutation(cycle - 1, poolSize);
+        if (!order.isEmpty() && !prevOrder.isEmpty() && order.get(0).equals(prevOrder.get(poolSize - 1))) {
+            int tmp = order.get(0);
+            order.set(0, order.get(1));
+            order.set(1, tmp);
+        }
+
+        return order.get(day);
+    }
+
+    private static List<Integer> getCyclePermutation(long cycle, int poolSize) {
+        List<Integer> order = new ArrayList<>(poolSize);
+        for (int i = 0; i < poolSize; i++) order.add(i);
+
+        try {
+            MessageDigest md5 = MessageDigest.getInstance("MD5");
+            for (int i = poolSize - 1; i > 0; i--) {
+                byte[] digest = md5.digest(("daily_" + cycle + "_" + i).getBytes(StandardCharsets.UTF_8));
+                long val = ((digest[0] & 0xFFL) << 24) |
+                           ((digest[1] & 0xFFL) << 16) |
+                           ((digest[2] & 0xFFL) << 8)  |
+                           (digest[3] & 0xFFL);
+                int j = (int)(val % (i + 1));
+                int tmp = order.get(i);
+                order.set(i, order.get(j));
+                order.set(j, tmp);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return order;
     }
 }

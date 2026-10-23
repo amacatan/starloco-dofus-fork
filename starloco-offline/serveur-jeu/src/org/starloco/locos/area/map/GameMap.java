@@ -886,6 +886,14 @@ public class GameMap {
             SocketManager.GAME_SEND_ERASE_ON_MAP_TO_MAP(this, id);
         }
         this.mobGroups.clear();
+        for (MonsterGroup mg : this.fixMobGroups.values()) {
+            if (mg.getCellId() <= 0 || this.getCase(mg.getCellId()) == null || !this.getCase(mg.getCellId()).isWalkable(false) || (this.data != null && this.data.cellHasMoveEndActions(mg.getCellId()))) {
+                int freeCell = this.getRandomFreeCellId();
+                if (freeCell > 0) {
+                    mg.setCellId(freeCell);
+                }
+            }
+        }
         this.mobGroups.putAll(this.fixMobGroups);
         for (MonsterGroup mg : this.fixMobGroups.values())
             SocketManager.GAME_SEND_MAP_MOBS_GM_PACKET(this, mg);

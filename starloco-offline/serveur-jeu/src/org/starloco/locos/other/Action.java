@@ -205,6 +205,43 @@ public class Action {
                 MonsterGroup MG = new MonsterGroup(player.getCurMap().nextObjectId, map, player.getCurCell().getId(), grp);
                 player.getCurMap().startFigthVersusDopeuls(player, MG);
                 break;
+            case -7://Recompenses Dopeuls
+                try {
+                    switch (Integer.parseInt(args)) {
+                        case 1://Apprendre le sort special
+                            int classID = player.getClasse();
+                            int spellID = Constant.getSpecialSpellByClasse(classID);
+                            if (spellID == 0) return true;
+                            if (player.hasSpell(spellID)) {
+                                SocketManager.GAME_SEND_MESSAGE(player, player.getLang().trans("other.dopeul.getreward.spellexist"));
+                                return true;
+                            }
+                            int doplonClass = Constant.getIDdoplonByMapID(player.getCurMap().getId());
+                            if (doplonClass == -1 || !player.hasItemTemplate(doplonClass, 1, false)) {
+                                SocketManager.GAME_SEND_MESSAGE(player, "Tu n'as pas assez de doplons.");
+                                return true;
+                            }
+                            player.removeItemByTemplateId(doplonClass, 1, false);
+                            player.learnSpell(spellID, 1, true, true, true);
+                            break;
+                        case 2://Prendre le trousseau de clefs
+                            if (player.hasItemTemplate(10207, 1, false)) {
+                                SocketManager.GAME_SEND_MESSAGE(player, player.getLang().trans("other.dopeul.getreward.bunchofkeys"));
+                                return true;
+                            }
+                            int doplonTemple = Constant.getIDdoplonByMapID(player.getCurMap().getId());
+                            if (doplonTemple == -1 || !player.hasItemTemplate(doplonTemple, 1, false)) {
+                                SocketManager.GAME_SEND_MESSAGE(player, "Tu n'as pas assez de doplons.");
+                                return true;
+                            }
+                            player.removeItemByTemplateId(doplonTemple, 1, false);
+                            player.addItem(10207, 1, true, true);
+                            break;
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                break;
             case -5://Apprendre un sort
                 try {
                     int sID = Integer.parseInt(args);
@@ -1496,10 +1533,10 @@ public class Action {
             case 200: //Animation + Condition voyage Ile Minotor
                 long k = player.getKamas();
                 int cost = player.getCurMap().getId() == 9520 ? 100 : 200;
-                if(k > cost) {
+                if(k >= cost) {
                     player.addKamas(- cost);
                     SocketManager.GAME_SEND_STATS_PACKET(player);
-                    SocketManager.GAME_SEND_Im_PACKET(player, "046;" + 100);
+                    SocketManager.GAME_SEND_Im_PACKET(player, "046;" + cost);
                     if(cost == 100) player.teleport((short) 9541, 407);
                     else player.teleport((short) 9520, 282);
                 } else {

@@ -46,11 +46,61 @@ public class MonsterGroup {
         if (!haveSameAlign) return;
 
         for (int a = 0; a < groupSize; a++) {
-            MonsterGrade Mob;
-            do {
+            MonsterGrade Mob = null;
+            for (int attempt = 0; attempt < 50; attempt++) {
+                int random = Formulas.getRandomValue(0, possibles.size() - 1);
+                MonsterGrade candidate = possibles.get(random);
+                if (candidate == null || candidate.getTemplate() == null)
+                    continue;
+                if (candidate.getTemplate().getAlign() != this.alignment)
+                    continue;
+
+                int templateId = candidate.getTemplate().getId();
+                boolean isMiniBoss = templateId == 831 || templateId == 832
+                        || candidate.getTemplate().isBoss()
+                        || candidate.getTemplate().isArchMonster();
+
+                if (isMiniBoss) {
+                    boolean alreadyPresent = false;
+                    for (MonsterGrade existing : this.mobs.values()) {
+                        if (existing != null && existing.getTemplate() != null) {
+                            int existId = existing.getTemplate().getId();
+                            if (existId == templateId) {
+                                alreadyPresent = true;
+                                break;
+                            }
+                            if ((templateId == 831 && existId == 832) || (templateId == 832 && existId == 831)) {
+                                alreadyPresent = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (alreadyPresent) {
+                        continue;
+                    }
+
+                    // Rarity check: 831 and 832 have a 20% acceptance chance when rolled
+                    if (templateId == 831 || templateId == 832) {
+                        if (Formulas.getRandomValue(1, 100) > 20) {
+                            continue;
+                        }
+                    }
+                }
+
+                if (templateId == 831 || templateId == 832) {
+                    MonsterGrade randomGrade = candidate.getTemplate().getRandomGrade();
+                    Mob = (randomGrade != null ? randomGrade : candidate).getCopy();
+                } else {
+                    Mob = candidate.getCopy();
+                }
+                break;
+            }
+
+            if (Mob == null) {
                 int random = Formulas.getRandomValue(0, possibles.size() - 1);
                 Mob = possibles.get(random).getCopy();
-            } while (Mob.getTemplate().getAlign() != this.alignment);
+            }
 
             if (Mob.getTemplate().getAlign() != this.alignment)
                 this.alignment = Mob.getTemplate().getAlign();
@@ -124,6 +174,12 @@ public class MonsterGroup {
         this.id = id;
         this.alignment = Constant.ALIGNEMENT_NEUTRE;
         this.cellId = cellId;
+        if (map != null && (this.cellId <= 0 || map.getCase(this.cellId) == null || !map.getCase(this.cellId).isWalkable(false) || (map.data != null && map.data.cellHasMoveEndActions(this.cellId)))) {
+            if (cellId > 0) {
+                org.starloco.locos.kernel.Main.logger.error("Map #{}: mob group cell {} is not walkable/valid! Falling back to random free cell.", map.getId(), cellId);
+            }
+            this.cellId = map.getRandomFreeCellId();
+        }
         this.isFix = true;
         int guid = -1;
         boolean star = false;
@@ -165,7 +221,10 @@ public class MonsterGroup {
         this.id = id;
         this.alignment = Constant.ALIGNEMENT_NEUTRE;
         this.cellId = def.cellId;
-        if(this.cellId == -1) {
+        if (map != null && (this.cellId <= 0 || map.getCase(this.cellId) == null || !map.getCase(this.cellId).isWalkable(false) || (map.data != null && map.data.cellHasMoveEndActions(this.cellId)))) {
+            if (def.cellId > 0) {
+                org.starloco.locos.kernel.Main.logger.error("Map #{}: fixed mob group cell {} is not walkable/valid! Falling back to random free cell.", map.getId(), def.cellId);
+            }
             this.cellId = map.getRandomFreeCellId();
         }
 

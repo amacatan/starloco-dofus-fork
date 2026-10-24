@@ -1876,7 +1876,7 @@ public class Action {
 
             case 227://Animation + Condition voyage Ile Wabbit
                 long pKamas = player.getKamas();
-                if (pKamas >= 500 && player.getCurMap().getId() == 167) {
+                if (pKamas >= 500 && player.hasItemTemplate(960, 1, false) && player.getCurMap().getId() == 167) {
                     long pNewKamas = pKamas - 500;
                     if (pNewKamas < 0)
                         pNewKamas = 0;

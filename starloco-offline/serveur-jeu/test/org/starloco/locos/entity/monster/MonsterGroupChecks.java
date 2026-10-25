@@ -7,9 +7,19 @@ public final class MonsterGroupChecks {
     private MonsterGroupChecks() {}
 
     public static void run() {
-        Monster regular1 = new Monster(668, 100, 0, "", "50@0|60@0|70@0|80@0|90@0", "", "", "", "", "", "", 0, 0, "", 1, true, 0, false, false);
-        Monster mominotor = new Monster(831, 101, 0, "", "68@0|76@0|84@0|92@0|100@0", "", "", "", "", "", "", 0, 0, "", 1, true, 0, true, false);
-        Monster deminoboule = new Monster(832, 102, 0, "", "70@0|80@0|90@0|100@0|110@0", "", "", "", "", "", "", 0, 0, "", 1, true, 0, true, false);
+        String grades1 = "50@0;0;0;0;0;0;0|60@0;0;0;0;0;0;0|70@0;0;0;0;0;0;0|80@0;0;0;0;0;0;0|90@0;0;0;0;0;0;0";
+        String gradesMomi = "68@0;0;0;0;0;0;0|76@0;0;0;0;0;0;0|84@0;0;0;0;0;0;0|92@0;0;0;0;0;0;0|100@0;0;0;0;0;0;0";
+        String gradesDemi = "70@0;0;0;0;0;0;0|80@0;0;0;0;0;0;0|90@0;0;0;0;0;0;0|100@0;0;0;0;0;0;0|110@0;0;0;0;0;0;0";
+        String stats = "0,0,0,0,0|0,0,0,0,0|0,0,0,0,0|0,0,0,0,0|0,0,0,0,0";
+        String statsInfos = "0;0;0;1";
+        String pdvs = "100|100|100|100|100";
+        String pts = "3;3|3;3|3;3|3;3|3;3";
+        String inits = "100|100|100|100|100";
+        String exps = "10|10|10|10|10";
+
+        Monster regular1 = new Monster(668, 100, 0, "", grades1, "", stats, statsInfos, pdvs, pts, inits, 0, 0, exps, 1, true, 0, false, false);
+        Monster mominotor = new Monster(831, 101, 0, "", gradesMomi, "", stats, statsInfos, pdvs, pts, inits, 0, 0, exps, 1, true, 0, true, false);
+        Monster deminoboule = new Monster(832, 102, 0, "", gradesDemi, "", stats, statsInfos, pdvs, pts, inits, 0, 0, exps, 1, true, 0, true, false);
 
         List<MonsterGrade> possibles = new ArrayList<>();
         for (MonsterGrade g : regular1.getGrades().values()) possibles.add(g);

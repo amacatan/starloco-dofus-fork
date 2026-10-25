@@ -232,14 +232,20 @@ public class World implements Scripted<SWorld> {
     public GameObject getGameObject(int id) {
         GameObject object = objects.get(id);
         if (object == null) {
-            object = DatabaseManager.get(ObjectData.class).load(id);
+            ObjectData objectData = DatabaseManager.get(ObjectData.class);
+            if (objectData != null) {
+                object = objectData.load(id);
+            }
         }
         return object;
     }
 
     public void removeGameObject(int id) {
         if (objects.containsKey(id)) {
-            ((ObjectData) DatabaseManager.get(ObjectData.class)).delete(this.getGameObject(id));
+            ObjectData objectData = (ObjectData) DatabaseManager.get(ObjectData.class);
+            if (objectData != null) {
+                objectData.delete(this.getGameObject(id));
+            }
             objects.remove(id);
         }
     }

@@ -62,7 +62,7 @@ public final class DailyDungeonQuestChecks {
         check(DailyDungeonQuest.isTodayBoss(boss.getMonsterId()), "isTodayBoss must return true for current boss");
 
         long epochDay = DailyDungeonQuest.getCurrentQuestDate().toEpochDay();
-        int expectedIndex = (int) Math.floorMod(epochDay, DailyDungeonQuest.getBossPool().size());
+        int expectedIndex = DailyDungeonQuest.getShuffledIndex(epochDay, DailyDungeonQuest.getBossPool().size());
         DailyDungeonQuest.DailyBoss expectedBoss = DailyDungeonQuest.getBossPool().get(expectedIndex);
         check(boss.getMonsterId() == expectedBoss.getMonsterId(), "Boss ID must match calculated rotation");
     }

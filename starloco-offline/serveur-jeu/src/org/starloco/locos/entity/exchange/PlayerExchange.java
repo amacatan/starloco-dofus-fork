@@ -181,48 +181,17 @@ public class PlayerExchange extends Exchange {
         //Gestion des Kamas
         this.player1.addKamas((-kamas1 + kamas2));
         this.player2.addKamas((-kamas2 + kamas1));
-        for (Couple<Integer, Integer> couple : items1) // Les items du player vers le player2
-        {
-            if (couple.second == 0)
-                continue;
-            if (World.world.getGameObject(couple.first) == null)
-                continue;
-            if (World.world.getGameObject(couple.first).getPosition() != Constant.ITEM_POS_NO_EQUIPED)
-                continue;
-            if (!this.player1.hasItemGuid(couple.first))//Si le player n'a pas l'item (Ne devrait pas arriver : wpepro)
-            {
-                couple.second = 0;//On met la quantit� a 0 pour �viter les problemes
-                continue;
+                Player first = JobAction.compareInventoryLockOrder(this.player1, this.player2) <= 0 ? this.player1 : this.player2;
+        Player second = first == this.player1 ? this.player2 : this.player1;
+        synchronized (first.getItems()) {
+            synchronized (second.getItems()) {
+                for (Couple<Integer, Integer> couple : items1) {
+                    this.transferExchangeItem(this.player1, this.player2, couple);
+                }
+                for (Couple<Integer, Integer> couple : items2) {
+                    this.transferExchangeItem(this.player2, this.player1, couple);
+                }
             }
-            GameObject obj = World.world.getGameObject(couple.first);
-            if ((obj.getQuantity() - couple.second) < 1)//S'il ne reste plus d'item apres l'�change
-            {
-                this.player1.removeItem(couple.first);
-                couple.second = obj.getQuantity();
-                SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(this.player1, couple.first);
-                if (!this.player2.addItem(obj, true, false))//Si le joueur avait un item similaire
-                    World.world.removeGameObject(couple.first);//On supprime l'item inutile
-            } else {
-                obj.setQuantity(obj.getQuantity() - couple.second);
-                SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(this.player1, obj);
-                GameObject newObj = obj.getClone(couple.second, true);
-                if (this.player2.addItem(newObj, true, false))//Si le joueur n'avait pas d'item similaire
-                    World.world.addGameObject(newObj);//On ajoute l'item au World
-            }
-        }
-        for (Couple<Integer, Integer> couple : items2) {
-            if (couple.second == 0)
-                continue;
-            if (World.world.getGameObject(couple.first) == null)
-                continue;
-            if (World.world.getGameObject(couple.first).getPosition() != Constant.ITEM_POS_NO_EQUIPED)
-                continue;
-            if (!this.player2.hasItemGuid(couple.first))//Si le player n'a pas l'item (Ne devrait pas arriver)
-            {
-                couple.second = 0;//On met la quantit� a 0 pour �viter les problemes
-                continue;
-            }
-            this.giveObject(couple, World.world.getGameObject(couple.first));
         }
         //Fin
         this.player1.setExchangeAction(null);
@@ -242,6 +211,65 @@ public class PlayerExchange extends Exchange {
      * is important for secure crafting: a failed clone INSERT or source UPDATE
      * must never be mistaken for a successful payment.
      */
+    private void transferExchangeItem(Player fromPlayer, Player toPlayer, Couple<Integer, Integer> couple) {
+        if (couple == null || couple.first == null || couple.second == null || couple.second <= 0)
+            return;
+        GameObject obj = World.world.getGameObject(couple.first);
+        if (obj == null)
+            return;
+        if (obj.getPosition() != Constant.ITEM_POS_NO_EQUIPED)
+            return;
+        if (!fromPlayer.hasItemGuid(couple.first)) {
+            couple.second = 0;
+            return;
+        }
+
+        int quantity = Math.min(couple.second, obj.getQuantity());
+        if (quantity <= 0)
+            return;
+
+        ObjectData objectData = DatabaseManager.get(ObjectData.class);
+
+        if (quantity >= obj.getQuantity()) {
+            fromPlayer.removeItem(obj.getGuid());
+            couple.second = obj.getQuantity();
+            if (fromPlayer.isOnline()) {
+                SocketManager.GAME_SEND_REMOVE_ITEM_PACKET(fromPlayer, obj.getGuid());
+            }
+            if (!toPlayer.addItem(obj, true, false)) {
+                World.world.removeGameObject(obj.getGuid());
+            }
+        } else {
+            int originalQuantity = obj.getQuantity();
+            int remaining = originalQuantity - quantity;
+            obj.setQuantity(remaining);
+            if (objectData != null && !objectData.updateSafely(obj)) {
+                obj.setQuantity(originalQuantity);
+                return;
+            }
+            if (fromPlayer.isOnline()) {
+                SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(fromPlayer, obj);
+            }
+
+            GameObject newObj = obj.getClone(quantity, true);
+            if (newObj == null || newObj.getGuid() <= 0) {
+                obj.setQuantity(originalQuantity);
+                if (objectData != null) {
+                    objectData.updateSafely(obj);
+                }
+                if (fromPlayer.isOnline()) {
+                    SocketManager.GAME_SEND_OBJECT_QUANTITY_PACKET(fromPlayer, obj);
+                }
+                return;
+            }
+
+            World.world.addGameObject(newObj);
+            if (!toPlayer.addItem(newObj, true, false)) {
+                World.world.removeGameObject(newObj.getGuid());
+            }
+        }
+    }
+
     protected boolean giveObject(Couple<Integer, Integer> couple,
                                  GameObject object) {
         Player first = JobAction.compareInventoryLockOrder(

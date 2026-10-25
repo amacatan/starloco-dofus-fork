@@ -110,12 +110,12 @@ public class MonsterGroup {
             guid--;
         }
 
-        this.cellId = (cell == -1 ? map.getRandomFreeCellId() : cell);
-        while (map.containsForbiddenCellSpawn(this.cellId))
+        this.cellId = (cell == -1 ? (map != null ? map.getRandomFreeCellId() : cell) : cell);
+        while (map != null && map.containsForbiddenCellSpawn(this.cellId))
             this.cellId = map.getRandomFreeCellId();
         if (this.cellId == 0)
             return;
-        this.orientation = map.getId() == 11095 ? 3 : Formulas.getRandomValue(0, 3) * 2 + 1;
+        this.orientation = (map != null && map.getId() == 11095) ? 3 : Formulas.getRandomValue(0, 3) * 2 + 1;
         this.isFix = false;
         this.starBonus = 0;
     }

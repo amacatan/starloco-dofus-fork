@@ -75,6 +75,7 @@ public final class GameUnitChecks {
         CollectorChecks.run();
         PetEntryChecks.run();
         CraftSecureChecks.run();
+        org.starloco.locos.entity.exchange.PlayerExchangeChecks.run();
         SecureCraftRequestChecks.run();
         PlayerBankChecks.run();
         PlayerJobActionChecks.run();
